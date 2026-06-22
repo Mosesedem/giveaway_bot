@@ -15,6 +15,7 @@ from app.payments.exceptions import (
     TransferError,
     VirtualAccountError,
 )
+from app.payments import safehaven_auth
 
 logger = logging.getLogger(__name__)
 
@@ -58,24 +59,40 @@ class SafeHavenClient:
         self._token_expires_at = 0.0
 
     def configured(self) -> bool:
-        return self.mock or bool(self._access_token or (self.client_id and self.client_assertion))
+        return self.mock or bool(
+            self._access_token
+            or (self.client_id and self.client_assertion)
+            or (self.client_id and safehaven_auth.has_signing_material())
+        )
+
+    def _client_assertion(self) -> str:
+        if self.client_assertion:
+            return self.client_assertion
+        token_url = f"{self.base_url}/oauth2/token"
+        return safehaven_auth.build_client_assertion(self.client_id, token_url)
 
     def _ensure_token(self) -> str:
         if self.mock:
             return "mock-token"
         if self._access_token and time.time() < self._token_expires_at - 60:
             return self._access_token
-        if not self.client_id or not self.client_assertion:
+        if not self.client_id:
             if self._access_token:
                 return self._access_token
             raise ProviderConfigError("SafeHaven credentials not configured")
+        if not self.client_assertion and not safehaven_auth.has_signing_material():
+            if self._access_token:
+                return self._access_token
+            raise ProviderConfigError(
+                "Set SAFEHAVEN_CLIENT_ASSERTION or SAFEHAVEN_PRIVATE_KEY for OAuth"
+            )
 
         resp = requests.post(
             f"{self.base_url}/oauth2/token",
             json={
                 "grant_type": "client_credentials",
                 "client_id": self.client_id,
-                "client_assertion": self.client_assertion,
+                "client_assertion": self._client_assertion(),
                 "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
             },
             timeout=30,

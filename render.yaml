@@ -25,6 +25,42 @@ services:
         value: "90"
       - key: ENABLE_SCHEDULER
         value: "false"
+      - key: FINTECH_MODE
+        value: "true"
+      - key: AUTO_PICK_WINNERS
+        value: "true"
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: SAFEHAVEN_BASE_URL
+        value: "https://api.sandbox.safehavenmfb.com"
+      - key: SAFEHAVEN_CLIENT_ID
+        sync: false
+      - key: SAFEHAVEN_CLIENT_ASSERTION
+        sync: false
+      - key: SAFEHAVEN_PRIVATE_KEY
+        sync: false
+      - key: SAFEHAVEN_DEBIT_ACCOUNT
+        sync: false
+      - key: SAFEHAVEN_SETTLEMENT_ACCOUNT_NUMBER
+        sync: false
+      - key: SAFEHAVEN_SETTLEMENT_BANK_CODE
+        value: "999240"
+      - key: SAFEHAVEN_WEBHOOK_SECRET
+        sync: false
+      - key: REQUIRE_WEBHOOK_SECRET
+        value: "true"
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PREFERRED_BANK
+        value: "wema-bank"
+      - key: TRANSACTION_FEE_MODE
+        value: "percent_plus_fixed"
+      - key: TRANSACTION_FEE_KOBO
+        value: "20000"
+      - key: TRANSACTION_FEE_PERCENT
+        value: "2"
+      - key: VA_VALID_FOR_SECONDS
+        value: "86400"
       - key: RUN_ALEMBIC_ON_STARTUP
         value: "false"
       - key: CRON_WAKE_SECRET
@@ -84,8 +120,31 @@ services:
         value: "90"
       - key: ENABLE_SCHEDULER
         value: "true"
-      - key: RUN_ALEMBIC_ON_STARTUP
-        value: "false"
+      - key: FINTECH_MODE
+        value: "true"
+      - key: AUTO_PICK_WINNERS
+        value: "true"
+      - key: PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: giveaway-bot
+          property: host
+      - key: SAFEHAVEN_BASE_URL
+        value: "https://api.sandbox.safehavenmfb.com"
+      - key: SAFEHAVEN_CLIENT_ID
+        sync: false
+      - key: SAFEHAVEN_CLIENT_ASSERTION
+        sync: false
+      - key: SAFEHAVEN_PRIVATE_KEY
+        sync: false
+      - key: SAFEHAVEN_DEBIT_ACCOUNT
+        sync: false
+      - key: SAFEHAVEN_SETTLEMENT_ACCOUNT_NUMBER
+        sync: false
+      - key: SAFEHAVEN_SETTLEMENT_BANK_CODE
+        value: "999240"
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
       - key: REQUIRE_FOLLOW_HOST
         value: "true"
       - key: ENABLE_BOT_REPLIES

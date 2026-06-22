@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>New giveaway</h1>
-<div class="subtitle">Create one manually — useful for testing, or hosts who DM you directly instead of tweeting a command</div>
+<div class="subtitle">Create from dashboard — uses the same VA funding flow as X mentions when fintech mode is on</div>
 
-<div class="panel" style="max-width:480px;">
+{% if flash %}
+<div class="flash flash-{{ flash_type or 'success' }}" style="margin-bottom:16px;">{{ flash }}</div>
+{% endif %}
+
+<div class="panel" style="max-width:520px;">
   <form method="post" action="/giveaways/new">
     <label for="title">Title</label>
     <input type="text" id="title" name="title" required placeholder="e.g. ₦50k Friday giveaway">
@@ -11,19 +15,27 @@
     <label for="prize_description">Prize description</label>
     <textarea id="prize_description" name="prize_description" rows="3" placeholder="What the winner(s) receive"></textarea>
 
+    {% if fintech_mode %}
+    <label for="prize_pool_ngn">Prize pool (₦)</label>
+    <input type="number" id="prize_pool_ngn" name="prize_pool_ngn" step="0.01" min="1" required placeholder="5000">
+
+    <label for="duration_hours">Entry duration (hours)</label>
+    <input type="number" id="duration_hours" name="duration_hours" step="1" min="1" required placeholder="168 for 7 days">
+    <div class="subtitle" style="margin-top:4px;">Winners are auto-picked randomly when this period ends.</div>
+    {% endif %}
+
     <label for="conversation_id">Conversation ID (host tweet / thread root ID)</label>
-    <input type="text" id="conversation_id" name="conversation_id" placeholder="Required to collect entries from X — paste the host tweet ID">
-    <div class="subtitle" style="margin-top:4px;">Replies under this tweet are counted as entries. Find it in the tweet URL: <code>x.com/user/status/1234567890</code></div>
+    <input type="text" id="conversation_id" name="conversation_id" placeholder="Required to collect entries from X">
+    <div class="subtitle" style="margin-top:4px;">Replies under this tweet are counted as entries.</div>
 
     <label for="host_user_id">Host user ID (numeric)</label>
-    <input type="text" id="host_user_id" name="host_user_id" placeholder="Required if REQUIRE_FOLLOW_HOST=true">
-    <div class="subtitle" style="margin-top:4px;">The X account running the giveaway — needed for follow validation.</div>
+    <input type="text" id="host_user_id" name="host_user_id" placeholder="Optional — for follow validation">
 
     <label for="num_winners">Number of winners</label>
     <input type="number" id="num_winners" name="num_winners" value="1" min="1" required>
 
     <div class="actions">
-      <button type="submit" class="btn">Create giveaway</button>
+      <button type="submit" class="btn">{% if fintech_mode %}Create &amp; generate VA{% else %}Create giveaway{% endif %}</button>
       <a href="/giveaways" class="btn secondary">Cancel</a>
     </div>
   </form>

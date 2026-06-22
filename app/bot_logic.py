@@ -22,7 +22,13 @@ from app.x_client import XClient
 from app.x_exceptions import XClientError
 from app.entry_validation import validate_entry, validation_rules_enabled
 from app.bot_replies import reply_winners_announced
-from app.giveaway_lifecycle import auto_close_expired, is_collecting_entries, notify_selection_ready
+from app.giveaway_lifecycle import (
+    auto_close_expired,
+    auto_finalize_closed_giveaway,
+    closes_at_passed,
+    is_collecting_entries,
+)
+from app.payments.va_expiry import expire_unfunded_giveaways
 from app.conversation.intake import continue_giveaway_session, handle_giveaway_mention, GIVEAWAY_TRIGGER_RE
 from app.conversation.host_funding import handle_host_funding_reply
 from app.conversation.payout_intake import handle_winner_dm, open_payout_session
@@ -399,8 +405,11 @@ def run_cycle(db: Session, client: XClient) -> dict:
         "setup_replies": 0,
         "host_funding_replies": 0,
         "inbound_dms": 0,
+        "va_expired": 0,
+        "auto_picked": 0,
     }
 
+    summary["va_expired"] = expire_unfunded_giveaways(db, client)
     summary["new_giveaways"] = handle_new_mentions(db, client)
     summary["setup_replies"] = process_setup_thread_replies(db, client)
     summary["host_funding_replies"] = process_host_funding_replies(db, client)
@@ -411,9 +420,26 @@ def run_cycle(db: Session, client: XClient) -> dict:
     ).scalars().all()
 
     for giveaway in active:
+        if closes_at_passed(giveaway):
+            summary["entries_collected"] += collect_entries(db, client, giveaway)
         if auto_close_expired(db, giveaway):
-            notify_selection_ready(db, client, giveaway)
-        if is_collecting_entries(giveaway):
+            result = auto_finalize_closed_giveaway(
+                db,
+                client,
+                giveaway,
+                pick_fn=lambda d, g, client=None: pick_winners(d, g, client=client, announce=True),
+                enqueue_dms_fn=lambda d, g: _enqueue_winner_payout_dms(d, g),
+            )
+            if result.get("winners"):
+                summary["auto_picked"] += result["winners"]
+        elif is_collecting_entries(giveaway):
             summary["entries_collected"] += collect_entries(db, client, giveaway)
 
     return summary
+
+
+def _enqueue_winner_payout_dms(db: Session, giveaway: Giveaway) -> int:
+    from app.dm_queue import enqueue_all_selected
+
+    queued, _ = enqueue_all_selected(db, giveaway, "")
+    return queued

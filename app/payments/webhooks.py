@@ -34,6 +34,69 @@ def _completed_status(data: dict) -> bool:
     return not status or status in {"completed", "success", "approved"}
 
 
+def _apply_incoming_credit(
+    db: Session,
+    giveaway: Giveaway,
+    amount_kobo: int,
+    payment_ref: str,
+    provider_event: str,
+    payload: dict,
+) -> tuple[Giveaway, str]:
+    event = record_funding_event(
+        db,
+        giveaway,
+        "safehaven",
+        provider_event,
+        {"amount_kobo": amount_kobo, "payment_reference": payment_ref, "raw": payload},
+        payment_reference=payment_ref,
+    )
+    if event is None:
+        db.commit()
+        return giveaway, "duplicate"
+    db.commit()
+    action = apply_funding_credit(db, giveaway, amount_kobo, payment_ref)
+    db.refresh(giveaway)
+    if action == "mismatch":
+        from app.conversation.host_funding import open_host_funding_session
+
+        open_host_funding_session(db, giveaway)
+    return giveaway, action
+
+
+def handle_safehaven_account_credit(db: Session, payload: dict) -> tuple[Giveaway | None, str]:
+    """Handle account.credit / inwards transfer to a giveaway VA."""
+    data = payload.get("data") or payload
+    external_ref = data.get("externalReference") or data.get("mandateReference")
+    acct = str(data.get("creditAccountNumber") or "")
+    giveaway = None
+    if external_ref:
+        giveaway = _find_giveaway(db, str(external_ref))
+    if not giveaway and acct:
+        giveaway = db.execute(
+            select(Giveaway).where(Giveaway.va_account_number == acct)
+        ).scalar_one_or_none()
+    if not giveaway:
+        logger.warning("No giveaway for account.credit acct=%s ref=%s", acct, external_ref)
+        return None, "ignored"
+    if not _completed_status(data):
+        return giveaway, "ignored"
+
+    amount_kobo = _amount_to_kobo(data.get("amount"))
+    payment_ref = str(data.get("paymentReference") or data.get("sessionId") or acct)
+    return _apply_incoming_credit(db, giveaway, amount_kobo, payment_ref, "account.credit", payload)
+
+
+def handle_safehaven_webhook(db: Session, payload: dict) -> tuple[Giveaway | None, str]:
+    event = str(payload.get("type") or payload.get("eventType") or "").lower()
+    if "virtualaccount" in event.replace(".", "") or event == "virtualaccount.transfer":
+        return handle_safehaven_virtual_account_transfer(db, payload)
+    if "credit" in event or event == "account.credit":
+        return handle_safehaven_account_credit(db, payload)
+    if payload.get("data", {}).get("creditAccountNumber"):
+        return handle_safehaven_account_credit(db, payload)
+    return handle_safehaven_virtual_account_transfer(db, payload)
+
+
 def handle_safehaven_virtual_account_transfer(db: Session, payload: dict) -> tuple[Giveaway | None, str]:
     data = payload.get("data") or payload
     external_ref = data.get("externalReference") or data.get("paymentReference")
@@ -52,24 +115,10 @@ def handle_safehaven_virtual_account_transfer(db: Session, payload: dict) -> tup
 
     amount_kobo = _amount_to_kobo(data.get("amount"))
     payment_ref = str(data.get("paymentReference") or data.get("sessionId") or external_ref)
-
-    event = record_funding_event(
-        db, giveaway, "safehaven", "virtualAccount.transfer",
-        {"amount_kobo": amount_kobo, "payment_reference": payment_ref, "raw": payload},
-        payment_reference=payment_ref,
+    gw, action = _apply_incoming_credit(
+        db, giveaway, amount_kobo, payment_ref, "virtualAccount.transfer", payload
     )
-    if event is None:
-        db.commit()
-        return giveaway, "duplicate"
-
-    db.commit()
-    action = apply_funding_credit(db, giveaway, amount_kobo, payment_ref)
-    db.refresh(giveaway)
-    if action == "mismatch":
-        from app.conversation.host_funding import open_host_funding_session
-
-        open_host_funding_session(db, giveaway)
-    return giveaway, action
+    return gw, action
 
 
 def handle_paystack_charge_success(db: Session, payload: dict) -> tuple[Giveaway | None, str]:

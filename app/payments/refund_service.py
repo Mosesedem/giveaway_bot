@@ -22,14 +22,69 @@ def overpaid_excess_kobo(giveaway: Giveaway) -> int:
     return max(0, received - expected)
 
 
-def refund_collect_prompt(amount_kobo: int) -> str:
+def refund_collect_prompt(amount_kobo: int, *, full: bool = False) -> str:
+    label = (
+        f"your payment of {format_ngn(amount_kobo)}"
+        if full
+        else f"the excess {format_ngn(amount_kobo)}"
+    )
     return (
-        f"You overpaid by {format_ngn(amount_kobo)}. "
-        "Before we restructure, we'll refund the excess.\n\n"
+        f"Before we restructure, we'll refund {label}.\n\n"
         "Reply with your bank details:\n"
         "Bank: GTBank\n"
         "Account: 0123456789"
     )
+
+
+def refund_amount_for_restructure(giveaway: Giveaway) -> int:
+    """Amount to return when host chooses RESTRUCTURE."""
+    excess = overpaid_excess_kobo(giveaway)
+    if excess > 0:
+        return excess
+    return giveaway.amount_received_kobo or 0
+
+
+def process_host_refund_bank(
+    db: Session,
+    giveaway: Giveaway,
+    bank_code: str,
+    account_number: str,
+) -> str:
+    giveaway.refund_bank_code = bank_code.strip()
+    giveaway.refund_account_number = account_number.strip()
+    giveaway.refund_status = RefundStatus.PROCESSING
+    db.commit()
+
+    account_name = None
+    name_ref = None
+    provider_used = None
+    errors: list[str] = []
+    for provider_name in _verification_providers("safehaven"):
+        try:
+            if provider_name == "paystack":
+                ps = PaystackClient()
+                resolved = ps.resolve_account(account_number, bank_code)
+                account_name = resolved.account_name
+                name_ref = f"paystack-refund-{account_number}"
+                provider_used = "paystack"
+            else:
+                sh = SafeHavenClient()
+                enquiry = sh.name_enquiry(bank_code, account_number)
+                account_name = enquiry.account_name
+                name_ref = enquiry.session_id
+                provider_used = "safehaven"
+            break
+        except (AccountVerificationError, PaymentError) as exc:
+            errors.append(str(exc))
+
+    if not account_name or not name_ref:
+        giveaway.refund_status = RefundStatus.COLLECTING_BANK
+        db.commit()
+        raise PaymentError(errors[-1] if errors else "Account verification failed")
+
+    giveaway.refund_account_name = account_name
+    db.commit()
+    return execute_host_refund(db, giveaway, name_ref, provider_used)
 
 
 def collect_refund_bank_details(

@@ -74,6 +74,23 @@
     <button type="submit" class="btn secondary">Mark complete</button>
   </form>
   {% endif %}
+  {% if giveaway.amount_received_kobo and giveaway.funding_status.value in ['overpaid', 'underpaid', 'pending_host_confirmation'] %}
+  <form method="post" action="/giveaways/{{ giveaway.id }}/refund-host" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+    <div>
+      <label style="font-size:11px;">Refund bank code</label>
+      <input type="text" name="bank_code" placeholder="058" style="width:80px;padding:4px 6px;">
+    </div>
+    <div>
+      <label style="font-size:11px;">Account number</label>
+      <input type="text" name="account_number" placeholder="0123456789" style="width:140px;padding:4px 6px;">
+    </div>
+    <div>
+      <label style="font-size:11px;">Amount ₦ (optional)</label>
+      <input type="number" name="amount_ngn" step="0.01" min="0" placeholder="auto" style="width:100px;padding:4px 6px;">
+    </div>
+    <button type="submit" class="btn secondary">Refund host</button>
+  </form>
+  {% endif %}
 </div>
 
 {% if winners %}

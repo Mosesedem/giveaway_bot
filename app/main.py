@@ -31,7 +31,7 @@ from app.dm_queue import enqueue_winner_dm, enqueue_all_selected, pending_count,
 from app.entry_validation import validation_config, validation_rules_enabled
 from app.giveaway_lifecycle import close_giveaway, complete_giveaway, is_collecting_entries
 from app.bot_replies import bot_replies_enabled
-from app.payments.webhooks import handle_safehaven_virtual_account_transfer, handle_paystack_charge_success
+from app.payments.webhooks import handle_safehaven_webhook, handle_paystack_charge_success
 from app.payments.funding_service import funding_receipt_text
 from app.payments.webhook_security import verify_paystack_signature, verify_safehaven_webhook
 from app.bot_logic import notify_host_funding_mismatch
@@ -130,9 +130,21 @@ def giveaways_list(request: Request, db: Session = Depends(get_db), _: None = De
 
 
 @app.get("/giveaways/new")
-def giveaway_new_form(request: Request, _: None = Depends(require_dashboard_auth)):
+def giveaway_new_form(
+    request: Request,
+    flash: str | None = None,
+    flash_type: str | None = None,
+    _: None = Depends(require_dashboard_auth),
+):
     return templates.TemplateResponse(
-        request, "giveaway_new.html", {"active": "giveaways"}
+        request,
+        "giveaway_new.html",
+        {
+            "active": "giveaways",
+            "fintech_mode": os.getenv("FINTECH_MODE", "true").lower() == "true",
+            "flash": flash,
+            "flash_type": flash_type,
+        },
     )
 
 
@@ -143,20 +155,55 @@ def giveaway_create(
     conversation_id: str = Form(""),
     host_user_id: str = Form(""),
     num_winners: int = Form(1),
+    prize_pool_ngn: float = Form(0),
+    duration_hours: float = Form(0),
     db: Session = Depends(get_db),
     _: None = Depends(require_dashboard_auth),
 ):
-    giveaway = Giveaway(
-        title=title,
-        prize_description=prize_description or None,
-        conversation_id=conversation_id or None,
-        host_user_id=host_user_id or None,
-        host_tweet_id=conversation_id or None,
-        num_winners=max(1, num_winners),
-        status=GiveawayStatus.ACTIVE,
-    )
-    db.add(giveaway)
-    db.commit()
+    from app.payments.funding_service import initiate_giveaway_funding, setup_giveaway_amounts
+    from app.payments.money import closes_at_from_duration
+
+    fintech = os.getenv("FINTECH_MODE", "true").lower() == "true"
+    if fintech:
+        if prize_pool_ngn <= 0 or duration_hours <= 0:
+            return RedirectResponse(
+                "/giveaways/new?flash=Prize+amount+and+duration+are+required&flash_type=error",
+                status_code=303,
+            )
+        prize_kobo = int(round(prize_pool_ngn * 100))
+        closes_at = closes_at_from_duration(int(duration_hours * 3600))
+        giveaway = Giveaway(
+            title=title,
+            prize_description=prize_description or None,
+            conversation_id=conversation_id or None,
+            host_user_id=host_user_id or None,
+            host_tweet_id=conversation_id or None,
+            num_winners=max(1, num_winners),
+            closes_at=closes_at,
+            status=GiveawayStatus.DRAFT,
+        )
+        setup_giveaway_amounts(db, giveaway, prize_kobo)
+        db.add(giveaway)
+        db.commit()
+        try:
+            initiate_giveaway_funding(db, giveaway)
+        except Exception as exc:
+            return RedirectResponse(
+                f"/giveaways/new?flash=Funding+setup+failed:+{exc}&flash_type=error",
+                status_code=303,
+            )
+    else:
+        giveaway = Giveaway(
+            title=title,
+            prize_description=prize_description or None,
+            conversation_id=conversation_id or None,
+            host_user_id=host_user_id or None,
+            host_tweet_id=conversation_id or None,
+            num_winners=max(1, num_winners),
+            status=GiveawayStatus.ACTIVE,
+        )
+        db.add(giveaway)
+        db.commit()
     return RedirectResponse(f"/giveaways/{giveaway.id}", status_code=303)
 
 
@@ -461,7 +508,7 @@ def internal_wake(request: Request, db: Session = Depends(get_db)):
 async def webhook_safehaven_va(request: Request, db: Session = Depends(get_db)):
     verify_safehaven_webhook(request)
     payload = await request.json()
-    giveaway, action = handle_safehaven_virtual_account_transfer(db, payload)
+    giveaway, action = handle_safehaven_webhook(db, payload)
     if giveaway and action == "activated" and giveaway.host_tweet_id:
         data = payload.get("data") or payload
         amount_kobo = int(float(data.get("amount", 0)) * 100)
@@ -573,6 +620,34 @@ def payments_log(request: Request, db: Session = Depends(get_db), _: None = Depe
         "payments.html",
         {"active": "payments", "events": events},
     )
+
+
+@app.post("/giveaways/{giveaway_id}/refund-host")
+def giveaway_refund_host(
+    giveaway_id: str,
+    bank_code: str = Form(...),
+    account_number: str = Form(...),
+    amount_ngn: float = Form(0),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_dashboard_auth),
+):
+    from app.models import RefundStatus
+    from app.payments.refund_service import process_host_refund_bank, refund_amount_for_restructure
+
+    giveaway = db.get(Giveaway, giveaway_id)
+    if not giveaway:
+        raise HTTPException(404, "Giveaway not found")
+    refund_kobo = int(round(amount_ngn * 100)) if amount_ngn > 0 else refund_amount_for_restructure(giveaway)
+    if refund_kobo <= 0:
+        return _redirect_with_flash(giveaway_id, "No refundable amount on this giveaway.", "error")
+    giveaway.refund_amount_kobo = refund_kobo
+    giveaway.refund_status = RefundStatus.COLLECTING_BANK
+    db.commit()
+    try:
+        msg = process_host_refund_bank(db, giveaway, bank_code, account_number)
+        return _redirect_with_flash(giveaway_id, msg)
+    except Exception as exc:
+        return _redirect_with_flash(giveaway_id, str(exc), "error")
 
 
 @app.post("/giveaways/{giveaway_id}/winners/{winner_id}/payout")

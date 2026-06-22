@@ -14,6 +14,7 @@ from app.payments.money import format_ngn, parse_duration_seconds, parse_ngn_to_
 from app.payments.refund_service import (
     collect_refund_bank_details,
     overpaid_excess_kobo,
+    refund_amount_for_restructure,
     refund_collect_prompt,
 )
 from app.conversation.intake import get_active_session, _load_draft, _save_draft, _session_expiry
@@ -201,14 +202,14 @@ def handle_host_funding_reply(
         return funding_receipt_text(giveaway, ref, giveaway.amount_received_kobo or 0), giveaway
 
     if RESTRUCTURE_RE.search(normalized) or parse_ngn_to_kobo(normalized) or WINNERS_RE.search(normalized):
-        excess = overpaid_excess_kobo(giveaway)
-        if excess > 0 and giveaway.refund_status != RefundStatus.COMPLETED:
+        refund_due = refund_amount_for_restructure(giveaway)
+        if refund_due > 0 and giveaway.refund_status != RefundStatus.COMPLETED:
             session.state = "refund_collecting"
-            giveaway.refund_amount_kobo = excess
+            giveaway.refund_amount_kobo = refund_due
             giveaway.refund_status = RefundStatus.COLLECTING_BANK
-            _save_draft(session, {"excess_kobo": excess})
+            _save_draft(session, {"refund_kobo": refund_due, "full_refund": overpaid_excess_kobo(giveaway) == 0})
             db.commit()
-            return refund_collect_prompt(excess), None
+            return refund_collect_prompt(refund_due, full=overpaid_excess_kobo(giveaway) == 0), None
         return _begin_restructure_intake(db, user_id, giveaway, session, normalized)
 
     return mismatch_prompt(giveaway), None

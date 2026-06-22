@@ -27,7 +27,7 @@ Set `SAFEHAVEN_MOCK=true` and `PAYSTACK_MOCK=true` for local dev without live ke
    - Platform fee: **2% + ₦200** by default (configurable at `/admin/settings`)
    - Total due: ₦5,300
 
-4. Host transfers ₦5,150 to the giveaway VA
+4. Host transfers ₦5,300 to the giveaway VA
 
 5. Webhook → giveaway ACTIVE + receipt reply on thread
 ```
@@ -55,7 +55,7 @@ If the host sends the wrong amount:
 
 After funding, status = `active`. Replies in the thread are collected until `closes_at` (from host duration).
 
-When `closes_at` passes, the bot auto-closes entries and tweets + DMs the host: **"Ready to pick winners!"**
+When `closes_at` passes, the bot auto-closes entries, **randomly picks winners**, announces on the thread, and queues payout DMs (`AUTO_PICK_WINNERS=true` by default).
 
 ---
 
@@ -91,14 +91,14 @@ When `closes_at` passes, the bot auto-closes entries and tweets + DMs the host: 
 ### Simulate funding locally
 
 ```bash
-# Exact payment (prize ₦5000 + ₦150 fee = ₦5150):
+# Exact payment (prize ₦5000 + ₦300 fee = ₦5300):
 curl -X POST http://localhost:8000/webhooks/safehaven/virtual-account \
   -H 'Content-Type: application/json' \
   -d '{
     "type": "virtualAccount.transfer",
     "data": {
       "externalReference": "gw-<GIVEAWAY_UUID>",
-      "amount": 5150,
+      "amount": 5300,
       "paymentReference": "TEST-REF-001",
       "status": "Completed"
     }

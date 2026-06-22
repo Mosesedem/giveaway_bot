@@ -21,23 +21,7 @@ BANK_LINE_RE = re.compile(r"bank\s*[:=]\s*([a-zA-Z0-9\s]+?)(?:\s+account|\s+acct
 ACCOUNT_RE = re.compile(r"(?:acct|account|acc)\s*[:=]?\s*(\d{10})", re.I)
 PLAIN_ACCOUNT_RE = re.compile(r"\b(\d{10})\b")
 
-# Minimal Nigerian bank aliases → SafeHaven/Paystack bank codes
-BANK_ALIASES: dict[str, str] = {
-    "gtb": "058",
-    "gtbank": "058",
-    "guaranty": "058",
-    "zenith": "057",
-    "access": "044",
-    "uba": "033",
-    "first": "011",
-    "firstbank": "011",
-    "fidelity": "070",
-    "stanbic": "221",
-    "union": "032",
-    "kuda": "50211",
-    "opay": "999992",
-    "palmpay": "999991",
-}
+from app.payments.banks import BANK_ALIASES, resolve_bank_code as _resolve_bank_code
 
 
 def _provider_order(preferred: str) -> list[str]:
@@ -81,7 +65,7 @@ def parse_bank_from_text(text: str) -> tuple[str | None, str | None]:
     lower = text.lower()
     bank_code = None
     if bank_name:
-        bank_code = resolve_bank_code(bank_name, SafeHavenClient())
+        bank_code = resolve_bank_code(bank_name)
     if not bank_code:
         for alias, code in BANK_ALIASES.items():
             if alias in lower:
@@ -90,15 +74,8 @@ def parse_bank_from_text(text: str) -> tuple[str | None, str | None]:
     return bank_code, account_number
 
 
-def resolve_bank_code(bank_name: str, safehaven: SafeHavenClient) -> str | None:
-    name = bank_name.strip().lower()
-    for alias, code in BANK_ALIASES.items():
-        if alias in name:
-            return code
-    for bank in safehaven.list_banks():
-        if name in bank["name"].lower():
-            return bank["code"]
-    return None
+def resolve_bank_code(bank_name: str) -> str | None:
+    return _resolve_bank_code(bank_name)
 
 
 def start_payout_collection(winner: Winner, giveaway: Giveaway) -> str:

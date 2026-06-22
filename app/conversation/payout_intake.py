@@ -12,7 +12,7 @@ from app.payments.payout_service import (
     parse_bank_from_text,
     resolve_bank_code,
 )
-from app.payments.safehaven import SafeHavenClient
+
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def handle_winner_dm(db: Session, user_id: str, text: str) -> str | None:
         if not bank_code:
             # try to find bank name in text
             for token in normalized.split():
-                code = resolve_bank_code(token, SafeHavenClient())
+                code = resolve_bank_code(token)
                 if code:
                     bank_code = code
                     break
