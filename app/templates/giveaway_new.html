@@ -11,8 +11,13 @@
     <label for="prize_description">Prize description</label>
     <textarea id="prize_description" name="prize_description" rows="3" placeholder="What the winner(s) receive"></textarea>
 
-    <label for="conversation_id">Conversation ID (thread to collect entries from)</label>
-    <input type="text" id="conversation_id" name="conversation_id" placeholder="Tweet/thread ID — optional, can add later">
+    <label for="conversation_id">Conversation ID (host tweet / thread root ID)</label>
+    <input type="text" id="conversation_id" name="conversation_id" placeholder="Required to collect entries from X — paste the host tweet ID">
+    <div class="subtitle" style="margin-top:4px;">Replies under this tweet are counted as entries. Find it in the tweet URL: <code>x.com/user/status/1234567890</code></div>
+
+    <label for="host_user_id">Host user ID (numeric)</label>
+    <input type="text" id="host_user_id" name="host_user_id" placeholder="Required if REQUIRE_FOLLOW_HOST=true">
+    <div class="subtitle" style="margin-top:4px;">The X account running the giveaway — needed for follow validation.</div>
 
     <label for="num_winners">Number of winners</label>
     <input type="number" id="num_winners" name="num_winners" value="1" min="1" required>

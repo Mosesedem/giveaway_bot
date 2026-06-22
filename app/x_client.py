@@ -47,12 +47,34 @@ logger = logging.getLogger(__name__)
 MAX_TWEET_LENGTH = 280
 DEFAULT_MAX_PAGES = 10  # safety cap so a runaway stream can't paginate forever
 
+_REQUIRED_CREDENTIAL_KEYS = (
+    "X_BEARER_TOKEN",
+    "X_API_KEY",
+    "X_API_SECRET",
+    "X_ACCESS_TOKEN",
+    "X_ACCESS_TOKEN_SECRET",
+)
+
+
+def x_credentials_configured() -> bool:
+    """True when all five X API credential env vars are set and non-empty."""
+    return all(os.getenv(key) for key in _REQUIRED_CREDENTIAL_KEYS)
+
+
+def missing_credential_keys() -> list[str]:
+    return [key for key in _REQUIRED_CREDENTIAL_KEYS if not os.getenv(key)]
+
 
 class XClient:
     """Wrapper around tweepy.Client for the giveaway bot."""
 
     def __init__(self, state_store: Optional[StateStore] = None):
+        self._api_key = os.getenv("X_API_KEY")
+        self._api_secret = os.getenv("X_API_SECRET")
+        self._access_token = os.getenv("X_ACCESS_TOKEN")
+        self._access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
         self.client = self._get_authenticated_client()
+        self._api_v1: Optional[tweepy.API] = None
         self.bot_user_id: Optional[int] = None
         self.bot_username: Optional[str] = None
         self.state = state_store or StateStore()
@@ -60,22 +82,31 @@ class XClient:
     def _get_authenticated_client(self) -> tweepy.Client:
         """Create authenticated Tweepy Client."""
         bearer_token = os.getenv("X_BEARER_TOKEN")
-        api_key = os.getenv("X_API_KEY")
-        api_secret = os.getenv("X_API_SECRET")
-        access_token = os.getenv("X_ACCESS_TOKEN")
-        access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
 
-        if not all([bearer_token, api_key, api_secret, access_token, access_token_secret]):
-            raise ValueError("Missing required X API credentials in environment variables")
+        if not x_credentials_configured():
+            missing = ", ".join(missing_credential_keys())
+            raise ValueError(f"Missing required X API credentials: {missing}")
 
         return tweepy.Client(
             bearer_token=bearer_token,
-            consumer_key=api_key,
-            consumer_secret=api_secret,
-            access_token=access_token,
-            access_token_secret=access_token_secret,
+            consumer_key=self._api_key,
+            consumer_secret=self._api_secret,
+            access_token=self._access_token,
+            access_token_secret=self._access_token_secret,
             wait_on_rate_limit=True,
         )
+
+    def _get_api_v1(self) -> tweepy.API:
+        """Lazy v1.1 API — used for friendship lookups not exposed in v2."""
+        if self._api_v1 is None:
+            auth = tweepy.OAuth1UserHandler(
+                self._api_key,
+                self._api_secret,
+                self._access_token,
+                self._access_token_secret,
+            )
+            self._api_v1 = tweepy.API(auth, wait_on_rate_limit=True)
+        return self._api_v1
 
     # ============================================================
     # HELPER: Retry + typed-exception translation
@@ -409,6 +440,19 @@ class XClient:
     # ============================================================
     # UTILITY: Get User Info (for KYC / trust scoring later)
     # ============================================================
+    def user_follows(self, follower_id: str, followed_id: str) -> bool:
+        """
+        True if follower_id follows followed_id.
+
+        Uses the v1.1 friendships/show endpoint (one cheap lookup per pair).
+        """
+        friendship = self._call_with_retry(
+            self._get_api_v1().get_friendship,
+            source_id=follower_id,
+            target_id=followed_id,
+        )
+        return bool(getattr(friendship, "following", False))
+
     def get_user_by_id(self, user_id: str) -> Dict[str, Any]:
         """
         Fetch basic user information.

@@ -40,7 +40,33 @@ def get_db() -> Session:
         db.close()
 
 
+def run_migrations() -> bool:
+    """Apply Alembic migrations. Returns True on success."""
+    import logging
+
+    from alembic import command
+    from alembic.config import Config
+
+    log = logging.getLogger(__name__)
+    try:
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        return True
+    except Exception as exc:
+        log.warning("Alembic upgrade failed: %s", exc)
+        return False
+
+
 def init_db():
-    """Create tables if they don't exist. Call once at startup."""
+    """Apply migrations when enabled, otherwise create tables directly."""
+    import logging
+    import os
+
     from app import models  # noqa: F401  (ensures models are registered on Base)
+
+    log = logging.getLogger(__name__)
+    use_alembic = os.getenv("RUN_ALEMBIC_ON_STARTUP", "true").lower() == "true"
+    if use_alembic and run_migrations():
+        return
+    log.info("Using create_all() for schema setup")
     models.Base.metadata.create_all(bind=engine)

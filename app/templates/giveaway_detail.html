@@ -26,9 +26,20 @@
   <form method="post" action="/giveaways/{{ giveaway.id }}/collect" style="display:inline;">
     <button type="submit" class="btn secondary">Collect entries now</button>
   </form>
+  {% if validation_rules.require_follow_host or validation_rules.require_follow_bot or validation_rules.min_account_age_days or validation_rules.min_followers or validation_rules.entry_keyword %}
+  <form method="post" action="/giveaways/{{ giveaway.id }}/revalidate" style="display:inline;">
+    <button type="submit" class="btn secondary">Revalidate entries</button>
+  </form>
+  {% endif %}
   {% if winners|length < giveaway.num_winners %}
   <form method="post" action="/giveaways/{{ giveaway.id }}/pick-winners" style="display:inline;">
     <button type="submit" class="btn">Pick winner(s)</button>
+  </form>
+  {% endif %}
+  {% if winners %}
+  <form method="post" action="/giveaways/{{ giveaway.id }}/queue-all-dms" style="display:inline;margin-top:8px;">
+    <input type="hidden" name="message" value="Congrats! You won the giveaway: {{ giveaway.title }}. Reply here or check your DMs for next steps.">
+    <button type="submit" class="btn">Queue all DMs ({{ dm_queue_pending }} pending)</button>
   </form>
   {% endif %}
 </div>
@@ -47,7 +58,12 @@
         {% if w.status.value in ['selected', 'dm_failed'] %}
         <form method="post" action="/giveaways/{{ giveaway.id }}/winners/{{ w.id }}/notify" style="display:inline;">
           <input type="hidden" name="message" value="Congrats! You won the giveaway: {{ giveaway.title }}. Reply here or check your DMs for next steps.">
-          <button type="submit" class="btn secondary" style="padding:4px 10px;font-size:12px;">Send DM</button>
+          <button type="submit" class="btn secondary" style="padding:4px 10px;font-size:12px;">Send now</button>
+        </form>
+        <form method="post" action="/giveaways/{{ giveaway.id }}/winners/{{ w.id }}/notify" style="display:inline;">
+          <input type="hidden" name="message" value="Congrats! You won the giveaway: {{ giveaway.title }}. Reply here or check your DMs for next steps.">
+          <input type="hidden" name="queue" value="true">
+          <button type="submit" class="btn secondary" style="padding:4px 10px;font-size:12px;">Queue DM</button>
         </form>
         {% endif %}
       </td>

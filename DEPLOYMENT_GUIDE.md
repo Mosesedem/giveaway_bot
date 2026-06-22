@@ -164,23 +164,24 @@ You know SQL, so the main adjustment is tooling, not concepts.
 psql postgresql://giveaway_bot:xxxx@xxxx.render.com/giveaway_bot
 ```
 
-**Schema changes:** right now `init_db()` (called on every app startup,
-in `app/main.py`) just does `CREATE TABLE IF NOT EXISTS` — fine for
-getting started, but it **won't alter existing tables** if you change a
-model later (add a column, etc.). Once you're making schema changes
-against real data, switch to **Alembic** (SQLAlchemy's migration tool —
-the equivalent of `golang-migrate` or Prisma Migrate):
+**Schema changes:** Alembic is wired up. Render runs `alembic upgrade head`
+during the build step. Locally:
 
 ```bash
-pip install alembic
-alembic init migrations
-# then: alembic revision --autogenerate -m "add column X"
-#       alembic upgrade head
+source venv/bin/activate
+alembic upgrade head          # apply migrations
+alembic revision --autogenerate -m "describe your change"
+alembic upgrade head          # after editing models
 ```
 
-I didn't wire this up by default because it adds ceremony you don't
-need on day one — but flag it to yourself once the schema stabilizes
-and you have real giveaway data you can't afford to wipe.
+`init_db()` tries Alembic first (`RUN_ALEMBIC_ON_STARTUP=true` by default),
+then falls back to `create_all()` if migrations fail (handy for first-time
+SQLite dev). On Render, `RUN_ALEMBIC_ON_STARTUP=false` because the build
+step already migrated.
+
+**Existing DB from before Alembic?** If tables already exist but
+`alembic_version` is missing: `alembic stamp head` (marks current schema
+as migrated without re-creating tables).
 
 **Backups:** Render's Postgres add-on takes automatic daily backups on
 paid plans. Given this bot touches winner selection (i.e., real money
@@ -234,29 +235,30 @@ WantedBy=multi-user.target
 
 ## What's actually in the dashboard right now
 
-- **Overview** (`/`) — active giveaway count, total entries, winners
-  still needing a DM, last bot cycle time
+- **Overview** (`/`) — active giveaways, entries, winners pending DM,
+  DM queue depth, last bot cycle + errors
 - **Giveaways** (`/giveaways`) — list of all campaigns
 - **New giveaway** (`/giveaways/new`) — manual creation (the bot also
   auto-creates these from X mentions containing "giveaway"/"start"/"begin")
-- **Giveaway detail** — entries table, winner picking (random, excludes
-  previously-selected users), per-winner "Send DM" button with retry-safe
-  dedup (clicking it twice never double-sends)
+- **Giveaway detail** — entries (with valid/invalid + reason), winner
+  picking, per-winner **Send now** or **Queue DM**, **Queue all DMs**,
+  **Revalidate entries** when validation rules are enabled
 - **Bot activity** (`/logs`) — cursor state per stream and recently
-  processed tweets, for debugging what the bot has and hasn't seen
+  processed tweets
 
-## What's deliberately not built yet
+## Production features (now built)
 
-- **Auth** — the dashboard has zero login protection right now. Anyone
-  with the URL can pick winners and send DMs. Fix this before you put
-  real prize money behind it — easiest path is Render's "basic auth" via
-  a small middleware, or stick the whole service behind a VPN/Cloudflare
-  Access if you control the network.
-- **Entry validation rules** — `is_valid`/`invalid_reason` columns exist
-  on the `Entry` model but nothing populates them yet (e.g. "must follow
-  the host," "one entry per account"). That's giveaway-specific business
-  logic only you know — `bot_logic.collect_entries()` is where you'd add it.
-- **Bulk DM rate limiting** — flagged in the original code review:
-  notifying many winners at once will currently block on X's rate limit
-  rather than queue. Fine for small giveaways, worth revisiting before
-  a campaign with dozens of winners.
+- **Dashboard auth** — set `DASHBOARD_USER` + `DASHBOARD_PASSWORD` for HTTP Basic Auth
+- **Entry validation** — env-driven rules (`REQUIRE_FOLLOW_HOST`, `MIN_FOLLOWERS`, etc.)
+- **DM queue** — scheduler drains queued winner DMs in rate-limited batches
+- **Alembic migrations** — `migrations/` + `alembic upgrade head` on Render build
+- **Render keep-alive cron** — `giveaway-bot-wake` cron in `render.yaml` pings
+  `/internal/wake` every 10 minutes (set `CRON_WAKE_SECRET` on the web service)
+
+## Still worth doing yourself
+
+- **Payout tracking UI** — winner status goes to `notified` but bank-detail
+  collection and `paid` marking are manual
+- **Custom validation per giveaway** — rules are global via `.env`, not per-campaign
+- **Guaranteed 24/7 polling** — cron reduces cold sleeps on starter tier but
+  isn't a substitute for a paid always-on plan or a dedicated worker process

@@ -3,6 +3,17 @@
 <h1>Overview</h1>
 <div class="subtitle">Bot health and giveaway activity at a glance</div>
 
+{% if not stats.x_configured %}
+<div class="panel" style="border-color:#f59e0b;margin-bottom:16px;">
+  <strong>X API not configured.</strong> Add your five credential env vars to <code>.env</code>, then hit
+  <a href="/health/x">/health/x</a> to verify. The scheduler will skip cycles until credentials are set.
+</div>
+{% elif stats.last_cycle_error %}
+<div class="panel" style="border-color:#ef4444;margin-bottom:16px;">
+  <strong>Last bot cycle failed:</strong> {{ stats.last_cycle_error }}
+</div>
+{% endif %}
+
 <div class="stat-row">
   <div class="stat">
     <div class="label">Active giveaways</div>
@@ -15,6 +26,10 @@
   <div class="stat">
     <div class="label">Winners pending DM</div>
     <div class="value warn">{{ stats.pending_dm }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">DM queue</div>
+    <div class="value warn">{{ stats.dm_queue_pending }}</div>
   </div>
   <div class="stat">
     <div class="label">Last bot cycle</div>

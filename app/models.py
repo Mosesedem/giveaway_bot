@@ -128,3 +128,26 @@ class Winner(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=True)
 
     giveaway: Mapped["Giveaway"] = relationship(back_populates="winners")
+
+
+class DMQueueStatus(str, enum.Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    SENT = "sent"
+    FAILED = "failed"
+
+
+class DMQueueItem(Base):
+    __tablename__ = "dm_queue"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    winner_id: Mapped[str] = mapped_column(String, ForeignKey("winners.id"), index=True)
+    giveaway_id: Mapped[str] = mapped_column(String, ForeignKey("giveaways.id"), index=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[DMQueueStatus] = mapped_column(Enum(DMQueueStatus), default=DMQueueStatus.PENDING)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5)
+    last_error: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)

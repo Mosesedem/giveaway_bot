@@ -3,8 +3,8 @@ services:
     name: giveaway-bot
     runtime: python
     plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: X_BEARER_TOKEN
@@ -25,6 +25,40 @@ services:
         value: "90"
       - key: ENABLE_SCHEDULER
         value: "true"
+      - key: RUN_ALEMBIC_ON_STARTUP
+        value: "false"
+      - key: CRON_WAKE_SECRET
+        sync: false
+      - key: DASHBOARD_USER
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: TRUSTED_HOST_USER_IDS
+        sync: false
+      - key: REQUIRE_FOLLOW_HOST
+        value: "true"
+      - key: DM_BATCH_SIZE
+        value: "3"
+      - key: DM_INTERVAL_SECONDS
+        value: "15"
+
+  - type: cron
+    name: giveaway-bot-wake
+    runtime: python
+    schedule: "*/10 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/cron_wake.py
+    envVars:
+      - key: CRON_WAKE_SECRET
+        fromService:
+          type: web
+          name: giveaway-bot
+          envVarKey: CRON_WAKE_SECRET
+      - key: WAKE_HOST
+        fromService:
+          type: web
+          name: giveaway-bot
+          property: host
 
 databases:
   - name: giveaway-bot-db

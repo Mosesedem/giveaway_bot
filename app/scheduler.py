@@ -11,8 +11,10 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.db import SessionLocal
-from app.x_client import XClient
+from app.x_client import XClient, x_credentials_configured, missing_credential_keys
 from app.bot_logic import run_cycle
+from app.dm_queue import process_dm_queue
+from app import runtime
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +23,21 @@ _client: XClient | None = None
 
 
 def _job():
+    if not x_credentials_configured():
+        missing = ", ".join(missing_credential_keys())
+        runtime.mark_cycle_failure(f"X API credentials not configured ({missing})")
+        logger.warning("Bot cycle skipped — X API credentials missing")
+        return
+
     db = SessionLocal()
     try:
         client = get_client()
         summary = run_cycle(db, client)
+        summary.update(process_dm_queue(db, client))
+        runtime.mark_cycle_success(summary)
         logger.info(f"Bot cycle complete: {summary}")
-    except Exception:
+    except Exception as e:
+        runtime.mark_cycle_failure(str(e))
         logger.exception("Bot cycle failed")
     finally:
         db.close()
@@ -34,6 +45,9 @@ def _job():
 
 def get_client() -> XClient:
     global _client
+    if not x_credentials_configured():
+        missing = ", ".join(missing_credential_keys())
+        raise ValueError(f"X API credentials not configured: {missing}")
     if _client is None:
         from app.state_store import StateStore
         _client = XClient(state_store=StateStore())
@@ -48,6 +62,7 @@ def start_scheduler(interval_seconds: int = 90):
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(_job, "interval", seconds=interval_seconds, id="bot_cycle", max_instances=1)
     _scheduler.start()
+    _job()  # don't wait a full interval before the first cycle
     logger.info(f"Scheduler started, bot cycle every {interval_seconds}s")
     return _scheduler
 
