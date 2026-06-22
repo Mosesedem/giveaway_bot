@@ -24,7 +24,7 @@ def main() -> int:
         return 1
 
     print(f"OK: authenticated as @{identity['username']} (user_id={identity['user_id']})")
-    print("Next: curl http://localhost:8000/health/x  (with the app running)")
+    print("Next: curl http://localhost:6768/health/x  (with the app running)")
     return 0
 
 

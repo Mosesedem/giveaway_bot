@@ -10,4 +10,5 @@ fi
 
 # Use the venv interpreter explicitly so a globally installed uvicorn
 # (e.g. /Library/Frameworks/.../bin/uvicorn) cannot shadow the venv one.
-exec ./venv/bin/python -m uvicorn app.main:app --reload "$@"
+PORT="${APP_PORT:-${WEB_PORT:-6768}}"
+exec ./venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload "$@"

@@ -1,67 +1,90 @@
+# Full stack for a single host (local dev or EC2).
+# Postgres is included. Redis is not used — queues/state live in Postgres.
+#
+# Default app port is 6768 (not 8000) to avoid clashing with other services.
+#
+#   cp .env.example .env && docker compose up --build -d
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-giveaway_bot}:${POSTGRES_PASSWORD:-giveaway_bot}@db:5432/${POSTGRES_DB:-giveaway_bot}
+  APP_PORT: ${APP_PORT:-6768}
+  FINTECH_MODE: ${FINTECH_MODE:-true}
+  AUTO_PICK_WINNERS: ${AUTO_PICK_WINNERS:-true}
+  ENABLE_BOT_REPLIES: ${ENABLE_BOT_REPLIES:-true}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:6768}
+  SAFEHAVEN_MOCK: ${SAFEHAVEN_MOCK:-true}
+  PAYSTACK_MOCK: ${PAYSTACK_MOCK:-true}
+  REQUIRE_WEBHOOK_SECRET: ${REQUIRE_WEBHOOK_SECRET:-false}
+
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: giveaway_bot
-      POSTGRES_USER: giveaway_bot
-      POSTGRES_PASSWORD: giveaway_bot
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-giveaway_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-giveaway_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-giveaway_bot}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U giveaway_bot -d giveaway_bot"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-giveaway_bot} -d ${POSTGRES_DB:-giveaway_bot}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
+    ports:
+      - "127.0.0.1:5432:5432"
 
   migrate:
     build: .
+    restart: "no"
     command: python -m alembic upgrade head
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://giveaway_bot:giveaway_bot@db:5432/giveaway_bot
+      <<: *app-env
     depends_on:
       db:
         condition: service_healthy
 
   web:
     build: .
+    restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${WEB_PORT:-6768}:${APP_PORT:-6768}"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://giveaway_bot:giveaway_bot@db:5432/giveaway_bot
+      <<: *app-env
       ENABLE_SCHEDULER: "false"
-      FINTECH_MODE: "true"
-      AUTO_PICK_WINNERS: "true"
-      ENABLE_BOT_REPLIES: "true"
-      SAFEHAVEN_MOCK: "true"
-      PAYSTACK_MOCK: "true"
     depends_on:
+      db:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${APP_PORT:-6768}/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 25s
 
   worker:
     build: .
+    restart: unless-stopped
     command: python -m app.worker
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://giveaway_bot:giveaway_bot@db:5432/giveaway_bot
+      <<: *app-env
       ENABLE_SCHEDULER: "true"
-      FINTECH_MODE: "true"
-      AUTO_PICK_WINNERS: "true"
-      ENABLE_BOT_REPLIES: "true"
-      SAFEHAVEN_MOCK: "true"
-      PAYSTACK_MOCK: "true"
     depends_on:
+      db:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      web:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -2,7 +2,8 @@ FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    APP_PORT=6768
 
 WORKDIR /app
 
@@ -18,9 +19,11 @@ COPY migrations ./migrations
 COPY app ./app
 COPY scripts ./scripts
 
-EXPOSE 8000
+RUN chmod +x scripts/docker-entrypoint.sh
+
+EXPOSE 6768
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f "http://localhost:${APP_PORT}/health" || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["scripts/docker-entrypoint.sh"]

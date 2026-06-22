@@ -43,14 +43,15 @@ jobs:
 
       - name: Smoke run container
         run: |
-          docker run -d --name gb-ci -p 8000:8000 \
+          docker run -d --name gb-ci -p 6768:6768 \
+            -e APP_PORT=6768 \
             -e SAFEHAVEN_MOCK=true \
             -e PAYSTACK_MOCK=true \
             -e ENABLE_SCHEDULER=false \
             giveaway-bot:ci
           for i in $(seq 1 30); do
-            curl -sf http://localhost:8000/health && break
+            curl -sf http://localhost:6768/health && break
             sleep 2
           done
-          curl -sf http://localhost:8000/health | grep -q '"status":"ok"'
+          curl -sf http://localhost:6768/health | grep -q '"status":"ok"'
           docker rm -f gb-ci

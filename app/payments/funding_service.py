@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _webhook_base() -> str:
-    return os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+    return os.getenv("PUBLIC_BASE_URL", "http://localhost:6768").rstrip("/")
 
 
 def setup_giveaway_amounts(db: Session, giveaway: Giveaway, prize_pool_kobo: int) -> None:
