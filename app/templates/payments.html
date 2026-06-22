@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Payment events</h1>
+<div class="subtitle">Webhook audit trail (funding + payouts)</div>
+
+<div class="panel">
+  {% if events %}
+  <table>
+    <tr><th>Time</th><th>Provider</th><th>Event</th><th>Giveaway</th><th>Amount</th></tr>
+    {% for e in events %}
+    <tr>
+      <td class="mono">{{ e.created_at.strftime('%m-%d %H:%M') }}</td>
+      <td>{{ e.provider }}</td>
+      <td>{{ e.event_type }}</td>
+      <td>{% if e.giveaway_id %}<a href="/giveaways/{{ e.giveaway_id }}">{{ e.giveaway_id[:8] }}…</a>{% endif %}</td>
+      <td class="mono">{% if e.amount_kobo %}{{ (e.amount_kobo / 100)|round(2) }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No payment events yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

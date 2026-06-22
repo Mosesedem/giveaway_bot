@@ -120,9 +120,15 @@ def _process_item(db: Session, client: XClient, item: DMQueueItem) -> None:
     item.attempts += 1
     db.commit()
 
+    message = item.message
+    if os.getenv("FINTECH_MODE", "true").lower() == "true":
+        from app.bot_logic import prepare_winner_payout_dm
+
+        message = prepare_winner_payout_dm(db, giveaway, winner)
+
     dedup_key = f"winner_notice:{giveaway.id}:{winner.user_id}"
     try:
-        client.send_direct_message(winner.user_id, item.message, dedup_key=dedup_key)
+        client.send_direct_message(winner.user_id, message, dedup_key=dedup_key)
         item.status = DMQueueStatus.SENT
         item.processed_at = datetime.now(timezone.utc)
         item.last_error = None
@@ -151,6 +157,32 @@ def _process_item(db: Session, client: XClient, item: DMQueueItem) -> None:
             item.last_error = str(exc)
         db.commit()
         logger.error(f"DM queue error for {winner.user_id}: {exc}")
+
+
+def list_recent(db: Session, limit: int = 100) -> list[DMQueueItem]:
+    return db.execute(
+        select(DMQueueItem).order_by(DMQueueItem.created_at.desc()).limit(limit)
+    ).scalars().all()
+
+
+def retry_item(db: Session, item_id: str) -> DMQueueItem | None:
+    item = db.get(DMQueueItem, item_id)
+    if not item or item.status not in (DMQueueStatus.FAILED, DMQueueStatus.PENDING):
+        return None
+    item.status = DMQueueStatus.PENDING
+    item.last_error = None
+    item.processed_at = None
+    db.commit()
+    return item
+
+
+def cancel_item(db: Session, item_id: str) -> bool:
+    item = db.get(DMQueueItem, item_id)
+    if not item or item.status not in (DMQueueStatus.PENDING, DMQueueStatus.FAILED):
+        return False
+    db.delete(item)
+    db.commit()
+    return True
 
 
 def process_dm_queue(db: Session, client: XClient) -> dict:

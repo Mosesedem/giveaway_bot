@@ -255,10 +255,27 @@ WantedBy=multi-user.target
 - **Render keep-alive cron** — `giveaway-bot-wake` cron in `render.yaml` pings
   `/internal/wake` every 10 minutes (set `CRON_WAKE_SECRET` on the web service)
 
+## Architecture: web + worker
+
+`render.yaml` deploys three services:
+
+| Service | Role |
+|---------|------|
+| `giveaway-bot` (web) | Dashboard only (`ENABLE_SCHEDULER=false`) |
+| `giveaway-bot-worker` | 24/7 bot loop + DM queue (`python -m app.worker`) |
+| `giveaway-bot-wake` (cron) | Pings `/internal/wake` every 10 min |
+
+Locally you can run both in one process (`./run.sh`) or split:
+
+```bash
+# terminal 1 — dashboard
+ENABLE_SCHEDULER=false ./run.sh
+# terminal 2 — bot loop
+python -m app.worker
+```
+
 ## Still worth doing yourself
 
-- **Payout tracking UI** — winner status goes to `notified` but bank-detail
-  collection and `paid` marking are manual
-- **Custom validation per giveaway** — rules are global via `.env`, not per-campaign
-- **Guaranteed 24/7 polling** — cron reduces cold sleeps on starter tier but
-  isn't a substitute for a paid always-on plan or a dedicated worker process
+- **Inbound DM reading** — bank details must be collected manually today
+- **Per-giveaway validation rules** — rules are global via `.env`
+- **Phase 1 broad search** — only mention-based giveaway detection is wired

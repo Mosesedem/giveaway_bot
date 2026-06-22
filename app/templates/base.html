@@ -99,6 +99,9 @@
   .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
   .badge-active { background: var(--accent-dim); color: var(--accent); }
   .badge-draft { background: #2A2A2A; color: var(--text-dim); }
+  .badge-awaiting_funding { background: #3A3220; color: var(--warn); }
+  .badge-awaiting_payment { background: #3A3220; color: var(--warn); }
+  .badge-funded { background: var(--accent-dim); color: var(--accent); }
   .badge-closed { background: #2A2A2A; color: var(--text-dim); }
   .badge-winners_selected { background: #3A3220; color: var(--warn); }
   .badge-complete { background: var(--accent-dim); color: var(--accent); }
@@ -107,6 +110,12 @@
   .badge-dm_failed { background: #3A2420; color: var(--danger); }
   .badge-confirmed { background: var(--accent-dim); color: var(--accent); }
   .badge-paid { background: var(--accent-dim); color: var(--accent); }
+  .badge-pending { background: #2A3028; color: var(--warn); }
+  .badge-processing { background: #2A3028; color: var(--text-dim); }
+  .badge-sent { background: var(--accent-dim); color: var(--accent); }
+  .badge-failed { background: #3A2420; color: var(--danger); }
+  .badge-closed { background: #2A3028; color: var(--text-dim); }
+  .badge-complete { background: var(--accent-dim); color: var(--accent); }
 
   .btn {
     display: inline-block;
@@ -150,6 +159,9 @@
     <ul>
       <li><a href="/" class="{% if active == 'overview' %}active{% endif %}">Overview</a></li>
       <li><a href="/giveaways" class="{% if active == 'giveaways' %}active{% endif %}">Giveaways</a></li>
+      <li><a href="/dm-queue" class="{% if active == 'dm_queue' %}active{% endif %}">DM queue</a></li>
+      <li><a href="/payments" class="{% if active == 'payments' %}active{% endif %}">Payments</a></li>
+      <li><a href="/admin/settings" class="{% if active == 'admin' %}active{% endif %}">Admin</a></li>
       <li><a href="/logs" class="{% if active == 'logs' %}active{% endif %}">Bot activity</a></li>
     </ul>
   </nav>

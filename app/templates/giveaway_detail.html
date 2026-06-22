@@ -4,7 +4,32 @@
 <div class="subtitle">
   <span class="badge badge-{{ giveaway.status.value }}">{{ giveaway.status.value.replace('_',' ') }}</span>
   &nbsp;·&nbsp; id <span class="mono">{{ giveaway.id }}</span>
+  {% if giveaway.host_username %}&nbsp;·&nbsp; host @{{ giveaway.host_username }}{% endif %}
+  {% if not accepting_entries %}&nbsp;·&nbsp; <span style="color:var(--warn);">entries closed</span>{% endif %}
 </div>
+
+{% if giveaway.prize_description %}
+<div class="subtitle">Prize: {{ giveaway.prize_description }}</div>
+{% endif %}
+{% if giveaway.va_account_number %}
+<div class="panel" style="margin-top:12px;">
+  <h2>Host funding</h2>
+  <table>
+    <tr><td>Status</td><td><span class="badge badge-{{ giveaway.funding_status.value }}">{{ giveaway.funding_status.value }}</span></td></tr>
+    <tr><td>Prize pool</td><td class="mono">{% if giveaway.prize_pool_kobo %}₦{{ "%.2f"|format(giveaway.prize_pool_kobo / 100) }}{% endif %}</td></tr>
+    <tr><td>Fee</td><td class="mono">{% if giveaway.transaction_fee_kobo %}₦{{ "%.2f"|format(giveaway.transaction_fee_kobo / 100) }}{% endif %}</td></tr>
+    <tr><td>Total due</td><td class="mono">{% if giveaway.amount_kobo %}₦{{ "%.2f"|format(giveaway.amount_kobo / 100) }}{% endif %}</td></tr>
+    <tr><td>Received</td><td class="mono">{% if giveaway.amount_received_kobo %}₦{{ "%.2f"|format(giveaway.amount_received_kobo / 100) }}{% endif %}</td></tr>
+    <tr><td>Virtual account</td><td class="mono">{{ giveaway.va_account_number }} · {{ giveaway.va_bank_name }}</td></tr>
+    {% if giveaway.refund_status.value != 'not_required' %}
+    <tr><td>Refund</td><td><span class="badge badge-{{ giveaway.refund_status.value }}">{{ giveaway.refund_status.value.replace('_',' ') }}</span>{% if giveaway.refund_amount_kobo %} · {{ "%.2f"|format(giveaway.refund_amount_kobo / 100) }}{% endif %}</td></tr>
+    {% endif %}
+  </table>
+</div>
+{% endif %}
+{% if giveaway.pick_seed is not none %}
+<div class="subtitle">Audit seed: <span class="mono">{{ giveaway.pick_seed }}</span></div>
+{% endif %}
 
 <div class="stat-row">
   <div class="stat">
@@ -23,47 +48,83 @@
 
 <div class="panel">
   <h2>Actions</h2>
+  {% if accepting_entries %}
   <form method="post" action="/giveaways/{{ giveaway.id }}/collect" style="display:inline;">
     <button type="submit" class="btn secondary">Collect entries now</button>
   </form>
+  {% endif %}
+  {% if giveaway.status.value == 'active' %}
+  <form method="post" action="/giveaways/{{ giveaway.id }}/close" style="display:inline;">
+    <button type="submit" class="btn secondary">Close entries</button>
+  </form>
+  {% endif %}
   {% if validation_rules.require_follow_host or validation_rules.require_follow_bot or validation_rules.min_account_age_days or validation_rules.min_followers or validation_rules.entry_keyword %}
   <form method="post" action="/giveaways/{{ giveaway.id }}/revalidate" style="display:inline;">
     <button type="submit" class="btn secondary">Revalidate entries</button>
   </form>
   {% endif %}
   {% if winners|length < giveaway.num_winners %}
-  <form method="post" action="/giveaways/{{ giveaway.id }}/pick-winners" style="display:inline;">
+  <form method="post" action="/giveaways/{{ giveaway.id }}/pick-winners" style="display:inline-flex;gap:8px;align-items:center;margin-top:8px;">
+    <input type="number" name="seed" placeholder="Audit seed (optional)" style="width:160px;">
     <button type="submit" class="btn">Pick winner(s)</button>
   </form>
   {% endif %}
-  {% if winners %}
-  <form method="post" action="/giveaways/{{ giveaway.id }}/queue-all-dms" style="display:inline;margin-top:8px;">
-    <input type="hidden" name="message" value="Congrats! You won the giveaway: {{ giveaway.title }}. Reply here or check your DMs for next steps.">
-    <button type="submit" class="btn">Queue all DMs ({{ dm_queue_pending }} pending)</button>
+  {% if giveaway.status.value in ['winners_selected', 'closed'] %}
+  <form method="post" action="/giveaways/{{ giveaway.id }}/complete" style="display:inline;">
+    <button type="submit" class="btn secondary">Mark complete</button>
   </form>
   {% endif %}
 </div>
 
 {% if winners %}
 <div class="panel">
+  <h2>Winner DMs</h2>
+  <form method="post" action="/giveaways/{{ giveaway.id }}/queue-all-dms">
+    <label for="bulk_dm_message">Message for all pending winners</label>
+    <textarea id="bulk_dm_message" name="message" rows="3" style="width:100%;">{{ default_dm_message }}</textarea>
+    <div class="actions">
+      <button type="submit" class="btn">Queue all DMs ({{ dm_queue_pending }} in queue)</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
   <h2>Winners</h2>
   <table>
-    <tr><th>User ID</th><th>Status</th><th>Selected</th><th></th></tr>
+    <tr><th>User</th><th>Status</th><th>Selected</th><th>Notes</th><th></th></tr>
     {% for w in winners %}
     <tr>
-      <td class="mono">{{ w.user_id }}</td>
-      <td><span class="badge badge-{{ w.status.value }}">{{ w.status.value.replace('_',' ') }}</span></td>
+      <td class="mono">{% if w.username %}@{{ w.username }}{% else %}{{ w.user_id }}{% endif %}</td>
+      <td>
+        <span class="badge badge-{{ w.status.value }}">{{ w.status.value.replace('_',' ') }}</span>
+        {% if w.payout_status %}<br><span class="badge badge-{{ w.payout_status.value }}" style="margin-top:4px;">{{ w.payout_status.value.replace('_',' ') }}</span>{% endif %}
+      </td>
       <td class="mono">{{ w.selected_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td style="font-size:12px;">{{ w.notes or "" }}</td>
       <td>
         {% if w.status.value in ['selected', 'dm_failed'] %}
         <form method="post" action="/giveaways/{{ giveaway.id }}/winners/{{ w.id }}/notify" style="display:inline;">
-          <input type="hidden" name="message" value="Congrats! You won the giveaway: {{ giveaway.title }}. Reply here or check your DMs for next steps.">
+          <input type="hidden" name="message" value="{{ default_dm_message }}">
           <button type="submit" class="btn secondary" style="padding:4px 10px;font-size:12px;">Send now</button>
         </form>
         <form method="post" action="/giveaways/{{ giveaway.id }}/winners/{{ w.id }}/notify" style="display:inline;">
-          <input type="hidden" name="message" value="Congrats! You won the giveaway: {{ giveaway.title }}. Reply here or check your DMs for next steps.">
+          <input type="hidden" name="message" value="{{ default_dm_message }}">
           <input type="hidden" name="queue" value="true">
-          <button type="submit" class="btn secondary" style="padding:4px 10px;font-size:12px;">Queue DM</button>
+          <button type="submit" class="btn secondary" style="padding:4px 10px;font-size:12px;">Queue</button>
+        </form>
+        {% endif %}
+        {% if w.payout_status and w.payout_status.value == 'ready' %}
+        <form method="post" action="/giveaways/{{ giveaway.id }}/winners/{{ w.id }}/payout" style="display:inline;">
+          <button type="submit" class="btn" style="padding:4px 8px;font-size:11px;">Execute payout</button>
+        </form>
+        {% endif %}
+        {% if w.status.value in ['notified', 'confirmed'] %}
+        <form method="post" action="/giveaways/{{ giveaway.id }}/winners/{{ w.id }}/status" style="display:inline;">
+          <input type="hidden" name="status" value="{% if w.status.value == 'notified' %}confirmed{% else %}paid{% endif %}">
+          <input type="text" name="notes" placeholder="Payout notes" style="width:120px;padding:4px 6px;font-size:11px;">
+          <button type="submit" class="btn secondary" style="padding:4px 8px;font-size:11px;">
+            {% if w.status.value == 'notified' %}Mark confirmed{% else %}Mark paid{% endif %}
+          </button>
         </form>
         {% endif %}
       </td>
@@ -74,21 +135,27 @@
 {% endif %}
 
 <div class="panel">
-  <h2>Entries</h2>
+  <h2>Entries
+    <span style="font-weight:normal;font-size:13px;">
+      <a href="?filter=all" {% if entry_filter == 'all' %}style="color:var(--text)"{% endif %}>all</a> ·
+      <a href="?filter=valid" {% if entry_filter == 'valid' %}style="color:var(--text)"{% endif %}>valid</a> ·
+      <a href="?filter=invalid" {% if entry_filter == 'invalid' %}style="color:var(--text)"{% endif %}>invalid</a>
+    </span>
+  </h2>
   {% if entries %}
   <table>
-    <tr><th>Tweet ID</th><th>User ID</th><th>Text</th><th>Valid</th></tr>
+    <tr><th>Tweet ID</th><th>User</th><th>Text</th><th>Valid</th></tr>
     {% for e in entries %}
     <tr>
       <td class="id">{{ e.tweet_id }}</td>
-      <td class="id">{{ e.user_id }}</td>
+      <td class="id">{% if e.username %}@{{ e.username }}{% else %}{{ e.user_id }}{% endif %}</td>
       <td>{{ e.text[:80] if e.text else "" }}</td>
       <td>{{ "✓" if e.is_valid else "✗ " + (e.invalid_reason or "") }}</td>
     </tr>
     {% endfor %}
   </table>
   {% else %}
-  <div class="empty">No entries collected yet. Click "Collect entries now" above.</div>
+  <div class="empty">No entries in this view. {% if accepting_entries %}Click "Collect entries now" above.{% endif %}</div>
   {% endif %}
 </div>
 {% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>DM queue</h1>
+<div class="subtitle">{{ pending_total }} pending — scheduler drains {{ pending_total }} in batches (see DM_BATCH_SIZE in .env)</div>
+
+<div class="panel">
+  {% if items %}
+  <table>
+    <tr>
+      <th>Created</th>
+      <th>Giveaway</th>
+      <th>User</th>
+      <th>Status</th>
+      <th>Attempts</th>
+      <th>Message</th>
+      <th>Error</th>
+      <th></th>
+    </tr>
+    {% for item in items %}
+    <tr>
+      <td class="mono">{{ item.created_at.strftime('%m-%d %H:%M') }}</td>
+      <td><a href="/giveaways/{{ item.giveaway_id }}">{{ item.giveaway_id[:8] }}…</a></td>
+      <td class="mono">{{ item.user_id }}</td>
+      <td><span class="badge badge-{{ item.status.value }}">{{ item.status.value }}</span></td>
+      <td class="mono">{{ item.attempts }}/{{ item.max_attempts }}</td>
+      <td>{{ item.message[:60] }}{% if item.message|length > 60 %}…{% endif %}</td>
+      <td style="color:var(--danger);font-size:12px;">{{ item.last_error or "" }}</td>
+      <td>
+        {% if item.status.value in ['failed', 'pending'] %}
+        <form method="post" action="/dm-queue/{{ item.id }}/retry" style="display:inline;">
+          <button type="submit" class="btn secondary" style="padding:4px 8px;font-size:11px;">Retry</button>
+        </form>
+        {% endif %}
+        {% if item.status.value in ['failed', 'pending'] %}
+        <form method="post" action="/dm-queue/{{ item.id }}/cancel" style="display:inline;">
+          <button type="submit" class="btn secondary" style="padding:4px 8px;font-size:11px;">Cancel</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">Queue is empty.</div>
+  {% endif %}
+</div>
+{% endblock %}

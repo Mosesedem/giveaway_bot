@@ -21,12 +21,17 @@ from app.models import Giveaway, GiveawayStatus, Entry, Winner, WinnerStatus
 from app.x_client import XClient
 from app.x_exceptions import XClientError
 from app.entry_validation import validate_entry, validation_rules_enabled
+from app.bot_replies import reply_winners_announced
+from app.giveaway_lifecycle import auto_close_expired, is_collecting_entries, notify_selection_ready
+from app.conversation.intake import continue_giveaway_session, handle_giveaway_mention, GIVEAWAY_TRIGGER_RE
+from app.conversation.host_funding import handle_host_funding_reply
+from app.conversation.payout_intake import handle_winner_dm, open_payout_session
+from app.payments.payout_service import start_payout_collection
 
 logger = logging.getLogger(__name__)
 
-# Matches: "@bot giveaway start Title here / prize: ... / winners: 3"
-# Keep this simple on purpose — tighten it once you see real host phrasing.
-START_COMMAND_RE = re.compile(r"\b(giveaway|start|begin)\b", re.IGNORECASE)
+def _fintech_mode() -> bool:
+    return os.getenv("FINTECH_MODE", "true").lower() == "true"
 
 
 def _trusted_host_ids() -> set[str]:
@@ -45,32 +50,140 @@ def handle_new_mentions(db: Session, client: XClient) -> int:
 
     for mention in mentions:
         text = mention["text"]
-        if not START_COMMAND_RE.search(text):
+        if not GIVEAWAY_TRIGGER_RE.search(text):
             client.state.mark_processed(mention["id"], context="ignored:not_a_command")
             continue
 
         if trusted_hosts and mention["author_id"] not in trusted_hosts:
             client.state.mark_processed(mention["id"], context="ignored:untrusted_host")
-            logger.info(
-                f"Ignored giveaway command from untrusted host {mention['author_id']} "
-                f"(tweet {mention['id']})"
-            )
             continue
 
-        giveaway = Giveaway(
-            host_tweet_id=mention["id"],
-            host_user_id=mention["author_id"],
-            conversation_id=mention["conversation_id"],
-            title=text[:200],
-            status=GiveawayStatus.ACTIVE,
-        )
-        db.add(giveaway)
-        db.commit()
+        host_username = None
+        try:
+            host_username = client.get_user_by_id(mention["author_id"]).get("username")
+        except XClientError:
+            pass
 
-        client.state.mark_processed(mention["id"], context=f"giveaway_created:{giveaway.id}")
-        logger.info(f"Created giveaway {giveaway.id} from tweet {mention['id']}")
-        handled += 1
+        if _fintech_mode():
+            reply_text, giveaway = handle_giveaway_mention(
+                db,
+                mention["author_id"],
+                mention["id"],
+                mention["conversation_id"],
+                text,
+                host_username,
+            )
+            if reply_text:
+                try:
+                    client.create_reply(reply_text, in_reply_to_tweet_id=mention["id"])
+                except XClientError as exc:
+                    logger.warning("Could not reply to host: %s", exc)
+            if giveaway:
+                client.state.mark_processed(mention["id"], context=f"giveaway_funding:{giveaway.id}")
+                handled += 1
+            else:
+                client.state.mark_processed(mention["id"], context="giveaway_intake_pending")
+        else:
+            client.state.mark_processed(mention["id"], context="ignored:legacy_mode_disabled")
 
+    return handled
+
+
+def notify_host_funding_mismatch(db: Session, client: XClient, giveaway: Giveaway) -> None:
+    from app.conversation.host_funding import mismatch_prompt, open_host_funding_session
+
+    open_host_funding_session(db, giveaway)
+    prompt = mismatch_prompt(giveaway)
+    if giveaway.host_tweet_id:
+        try:
+            client.create_reply(prompt, in_reply_to_tweet_id=giveaway.host_tweet_id)
+        except XClientError as exc:
+            logger.warning("Could not reply funding mismatch on thread: %s", exc)
+    if giveaway.host_user_id:
+        try:
+            client.send_direct_message(
+                giveaway.host_user_id,
+                prompt,
+                dedup_key=f"funding_mismatch:{giveaway.id}",
+            )
+        except XClientError as exc:
+            logger.warning("Could not DM host about funding mismatch: %s", exc)
+
+
+def process_host_funding_replies(db: Session, client: XClient) -> int:
+    from app.models import ConversationSession, ConversationKind
+
+    sessions = db.execute(
+        select(ConversationSession).where(ConversationSession.kind == ConversationKind.HOST_FUNDING)
+    ).scalars().all()
+    handled = 0
+    for session in sessions:
+        thread_id = session.thread_tweet_id
+        if not thread_id:
+            continue
+        replies = client.get_new_thread_replies(thread_id)
+        for reply in replies:
+            if reply["author_id"] != session.user_id:
+                continue
+            reply_text, giveaway = handle_host_funding_reply(
+                db, session.user_id, reply.get("text", "")
+            )
+            if reply_text:
+                try:
+                    client.create_reply(reply_text, in_reply_to_tweet_id=reply["id"])
+                except XClientError:
+                    pass
+            if giveaway and giveaway.status == GiveawayStatus.ACTIVE:
+                handled += 1
+            client.state.mark_processed(reply["id"], context="host_funding_reply")
+    return handled
+
+
+def process_setup_thread_replies(db: Session, client: XClient) -> int:
+    """Continue multi-turn giveaway setup from host replies in thread."""
+    from app.models import ConversationSession, ConversationKind
+
+    sessions = db.execute(
+        select(ConversationSession).where(ConversationSession.kind == ConversationKind.GIVEAWAY_SETUP)
+    ).scalars().all()
+    handled = 0
+    for session in sessions:
+        replies = client.get_new_thread_replies(session.thread_tweet_id)
+        for reply in replies:
+            if reply["author_id"] != session.user_id:
+                continue
+            reply_text, giveaway = continue_giveaway_session(
+                db, session.user_id, reply["id"], reply.get("text", "")
+            )
+            if reply_text:
+                try:
+                    client.create_reply(reply_text, in_reply_to_tweet_id=reply["id"])
+                except XClientError:
+                    pass
+            if giveaway:
+                handled += 1
+            client.state.mark_processed(reply["id"], context="setup_reply")
+    return handled
+
+
+def process_inbound_dms(db: Session, client: XClient) -> int:
+    if not _fintech_mode():
+        return 0
+    handled = 0
+    for event in client.get_new_dm_events():
+        sender = event["sender_id"]
+        bot_id = str(client.get_bot_identity()["user_id"])
+        if sender == bot_id:
+            client.state.mark_processed(event["id"], context="ignored:own_dm")
+            continue
+        reply = handle_winner_dm(db, sender, event.get("text", ""))
+        if reply:
+            try:
+                client.send_direct_message(sender, reply, dedup_key=None)
+            except XClientError as exc:
+                logger.warning("DM reply failed for %s: %s", sender, exc)
+            handled += 1
+        client.state.mark_processed(event["id"], context="dm_processed")
     return handled
 
 
@@ -83,6 +196,13 @@ def collect_entries(db: Session, client: XClient, giveaway: Giveaway) -> int:
     """
     if not giveaway.conversation_id:
         logger.warning(f"Giveaway {giveaway.id} has no conversation_id, skipping entry collection")
+        return 0
+
+    if auto_close_expired(db, giveaway):
+        logger.info(f"Giveaway {giveaway.id} auto-closed (closes_at passed)")
+        return 0
+    if not is_collecting_entries(giveaway):
+        logger.info(f"Giveaway {giveaway.id} not accepting entries (status={giveaway.status.value})")
         return 0
 
     replies = client.get_new_thread_replies(giveaway.conversation_id)
@@ -180,7 +300,13 @@ def revalidate_entries(db: Session, client: XClient, giveaway: Giveaway) -> tupl
     return valid_count, invalid_count
 
 
-def pick_winners(db: Session, giveaway: Giveaway, seed: Optional[int] = None) -> list[Winner]:
+def pick_winners(
+    db: Session,
+    giveaway: Giveaway,
+    seed: Optional[int] = None,
+    announce: bool = True,
+    client: Optional[XClient] = None,
+) -> list[Winner]:
     """
     Randomly select winners from valid, not-already-selected entries.
     Pass `seed` for reproducible/auditable picks (e.g. log the seed
@@ -201,7 +327,8 @@ def pick_winners(db: Session, giveaway: Giveaway, seed: Optional[int] = None) ->
         logger.warning(f"No eligible candidates for giveaway {giveaway.id}")
         return []
 
-    rng = random.Random(seed)
+    draw_seed = seed if seed is not None else random.randint(0, 2**31 - 1)
+    rng = random.Random(draw_seed)
     n = min(giveaway.num_winners, len(candidates))
     chosen = rng.sample(candidates, n)
 
@@ -211,15 +338,31 @@ def pick_winners(db: Session, giveaway: Giveaway, seed: Optional[int] = None) ->
             giveaway_id=giveaway.id,
             entry_id=entry.id,
             user_id=entry.user_id,
+            username=entry.username,
             status=WinnerStatus.SELECTED,
         )
         db.add(winner)
         winners.append(winner)
 
     giveaway.status = GiveawayStatus.WINNERS_SELECTED
+    giveaway.pick_seed = draw_seed
     db.commit()
-    logger.info(f"Selected {len(winners)} winner(s) for giveaway {giveaway.id}")
+
+    if announce and client is not None:
+        reply_winners_announced(client, giveaway, winners)
+
+    logger.info(
+        f"Selected {len(winners)} winner(s) for giveaway {giveaway.id} (seed={draw_seed})"
+    )
     return winners
+
+
+def prepare_winner_payout_dm(db: Session, giveaway: Giveaway, winner: Winner) -> str:
+    """Build the bank-collection DM and open a payout conversation session."""
+    message = start_payout_collection(winner, giveaway)
+    open_payout_session(db, winner, giveaway)
+    db.commit()
+    return message
 
 
 def notify_winner(client: XClient, giveaway: Giveaway, winner: Winner, db: Session, message: str) -> bool:
@@ -227,6 +370,9 @@ def notify_winner(client: XClient, giveaway: Giveaway, winner: Winner, db: Sessi
     DM a winner. Uses x_client's built-in dedup_key so retries never
     double-send. Updates the Winner row's status based on outcome.
     """
+    if _fintech_mode():
+        message = prepare_winner_payout_dm(db, giveaway, winner)
+
     dedup_key = f"winner_notice:{giveaway.id}:{winner.user_id}"
     try:
         client.send_direct_message(winner.user_id, message, dedup_key=dedup_key)
@@ -247,15 +393,27 @@ def run_cycle(db: Session, client: XClient) -> dict:
     One full pass of the bot loop: check for new commands, collect
     entries for all active giveaways. Called on a schedule (see bot.py).
     """
-    summary = {"new_giveaways": 0, "entries_collected": 0}
+    summary = {
+        "new_giveaways": 0,
+        "entries_collected": 0,
+        "setup_replies": 0,
+        "host_funding_replies": 0,
+        "inbound_dms": 0,
+    }
 
     summary["new_giveaways"] = handle_new_mentions(db, client)
+    summary["setup_replies"] = process_setup_thread_replies(db, client)
+    summary["host_funding_replies"] = process_host_funding_replies(db, client)
+    summary["inbound_dms"] = process_inbound_dms(db, client)
 
     active = db.execute(
         select(Giveaway).where(Giveaway.status == GiveawayStatus.ACTIVE)
     ).scalars().all()
 
     for giveaway in active:
-        summary["entries_collected"] += collect_entries(db, client, giveaway)
+        if auto_close_expired(db, giveaway):
+            notify_selection_ready(db, client, giveaway)
+        if is_collecting_entries(giveaway):
+            summary["entries_collected"] += collect_entries(db, client, giveaway)
 
     return summary

@@ -438,6 +438,35 @@ class XClient:
         return True
 
     # ============================================================
+    # INBOUND DIRECT MESSAGES
+    # ============================================================
+    def get_new_dm_events(self, max_results: int = 50) -> List[Dict[str, Any]]:
+        """Fetch DM events newer than persisted cursor (MessageCreate only)."""
+        since_id = self.state.get_since_id("dm_events")
+        page = self._call_with_retry(
+            self.client.get_dm_events,
+            max_results=min(max_results, 100),
+            dm_event_fields=["id", "text", "event_type", "sender_id", "created_at"],
+            event_types=["MessageCreate"],
+            user_auth=True,
+        )
+        events: List[Dict[str, Any]] = []
+        for event in page.data or []:
+            event_id = str(event.id)
+            if since_id and int(event_id) <= int(since_id):
+                continue
+            sender_id = str(getattr(event, "sender_id", "") or "")
+            text = str(getattr(event, "text", "") or "")
+            events.append({"id": event_id, "sender_id": sender_id, "text": text})
+
+        if events:
+            newest = max(events, key=lambda e: int(e["id"]))["id"]
+            self.state.set_since_id("dm_events", newest)
+
+        unprocessed = set(self.state.filter_unprocessed([e["id"] for e in events]))
+        return [e for e in events if e["id"] in unprocessed]
+
+    # ============================================================
     # UTILITY: Get User Info (for KYC / trust scoring later)
     # ============================================================
     def user_follows(self, follower_id: str, followed_id: str) -> bool:

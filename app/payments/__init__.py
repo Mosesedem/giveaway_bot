@@ -1,0 +1,1 @@
+"""Payment integrations: SafeHaven (primary), Paystack (backup)."""
