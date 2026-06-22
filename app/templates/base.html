@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Giveaway Console{% endblock %}</title>
+<style>
+  :root {
+    --bg: #0E1410;
+    --panel: #141C17;
+    --panel-border: #243029;
+    --text: #E8EDE9;
+    --text-dim: #8FA098;
+    --accent: #3FB68A;
+    --accent-dim: #1F4636;
+    --warn: #D9A441;
+    --danger: #D9614B;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+    --sans: -apple-system, "Inter", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .shell { display: flex; min-height: 100vh; }
+
+  nav.sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-right: 1px solid var(--panel-border);
+    padding: 24px 16px;
+  }
+  .brand {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .brand .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent); margin-right:7px; box-shadow: 0 0 6px var(--accent); }
+  nav.sidebar ul { list-style: none; padding: 0; margin: 0; }
+  nav.sidebar li { margin-bottom: 2px; }
+  nav.sidebar a {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 5px;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  nav.sidebar a:hover { background: var(--accent-dim); color: var(--text); text-decoration: none; }
+  nav.sidebar a.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+
+  main { flex: 1; padding: 28px 36px; max-width: 1100px; }
+
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+  }
+  .panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); margin: 0 0 14px; font-weight: 600; }
+
+  .stat-row { display: flex; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    min-width: 140px;
+  }
+  .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+  .stat .value { font-family: var(--mono); font-size: 24px; margin-top: 4px; }
+  .stat .value.accent { color: var(--accent); }
+  .stat .value.warn { color: var(--warn); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--text-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 10px; border-bottom: 1px solid var(--panel-border); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--panel-border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  td.mono, .mono { font-family: var(--mono); }
+  td.id { color: var(--text-dim); font-family: var(--mono); font-size: 12px; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+  .badge-active { background: var(--accent-dim); color: var(--accent); }
+  .badge-draft { background: #2A2A2A; color: var(--text-dim); }
+  .badge-closed { background: #2A2A2A; color: var(--text-dim); }
+  .badge-winners_selected { background: #3A3220; color: var(--warn); }
+  .badge-complete { background: var(--accent-dim); color: var(--accent); }
+  .badge-selected { background: #2A2A2A; color: var(--text-dim); }
+  .badge-notified { background: var(--accent-dim); color: var(--accent); }
+  .badge-dm_failed { background: #3A2420; color: var(--danger); }
+  .badge-confirmed { background: var(--accent-dim); color: var(--accent); }
+  .badge-paid { background: var(--accent-dim); color: var(--accent); }
+
+  .btn {
+    display: inline-block;
+    background: var(--accent);
+    color: #0E1410;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  .btn:hover { opacity: 0.9; text-decoration: none; }
+  .btn.secondary { background: transparent; border: 1px solid var(--panel-border); color: var(--text); }
+  .btn.danger { background: var(--danger); color: #fff; }
+
+  .empty { color: var(--text-dim); font-size: 13px; padding: 20px 0; text-align: center; }
+
+  .flash { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+  .flash.success { background: var(--accent-dim); color: var(--accent); }
+  .flash.error { background: #3A2420; color: var(--danger); }
+
+  input, select, textarea {
+    background: #0E1410;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    border-radius: 5px;
+    padding: 7px 10px;
+    font-family: var(--sans);
+    font-size: 13px;
+  }
+  label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; margin-top: 12px; }
+  form .actions { margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="sidebar">
+    <div class="brand"><span class="dot"></span>Giveaway Console</div>
+    <ul>
+      <li><a href="/" class="{% if active == 'overview' %}active{% endif %}">Overview</a></li>
+      <li><a href="/giveaways" class="{% if active == 'giveaways' %}active{% endif %}">Giveaways</a></li>
+      <li><a href="/logs" class="{% if active == 'logs' %}active{% endif %}">Bot activity</a></li>
+    </ul>
+  </nav>
+  <main>
+    {% if flash %}<div class="flash {{ flash_type or 'success' }}">{{ flash }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

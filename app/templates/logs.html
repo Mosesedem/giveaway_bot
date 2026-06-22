@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Bot activity</h1>
+<div class="subtitle">Cursor state and recent processed tweets — useful for debugging</div>
+
+<div class="panel">
+  <h2>Stream cursors</h2>
+  {% if cursors %}
+  <table>
+    <tr><th>Stream</th><th>Since ID</th><th>Updated</th></tr>
+    {% for c in cursors %}
+    <tr>
+      <td class="mono">{{ c.stream_key }}</td>
+      <td class="mono">{{ c.since_id }}</td>
+      <td class="mono">{{ c.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No cursors yet — bot hasn't run a cycle.</div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Recently processed tweets</h2>
+  {% if processed %}
+  <table>
+    <tr><th>Tweet ID</th><th>Context</th><th>Processed at</th></tr>
+    {% for p in processed %}
+    <tr>
+      <td class="id">{{ p.tweet_id }}</td>
+      <td>{{ p.context }}</td>
+      <td class="mono">{{ p.processed_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">Nothing processed yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

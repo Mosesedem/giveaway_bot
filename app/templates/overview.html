@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Overview</h1>
+<div class="subtitle">Bot health and giveaway activity at a glance</div>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Active giveaways</div>
+    <div class="value accent">{{ stats.active }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Total entries</div>
+    <div class="value">{{ stats.total_entries }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Winners pending DM</div>
+    <div class="value warn">{{ stats.pending_dm }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Last bot cycle</div>
+    <div class="value mono" style="font-size:14px;">{{ stats.last_cycle or "never" }}</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Recent giveaways</h2>
+  {% if giveaways %}
+  <table>
+    <tr><th>Title</th><th>Status</th><th>Entries</th><th>Winners</th><th></th></tr>
+    {% for g in giveaways %}
+    <tr>
+      <td>{{ g.title }}</td>
+      <td><span class="badge badge-{{ g.status.value }}">{{ g.status.value.replace('_',' ') }}</span></td>
+      <td class="mono">{{ g.entry_count }}</td>
+      <td class="mono">{{ g.winner_count }} / {{ g.num_winners }}</td>
+      <td><a href="/giveaways/{{ g.id }}">View →</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No giveaways yet. They appear here once the bot detects a start command, or you create one manually.</div>
+  {% endif %}
+</div>
+
+<a href="/giveaways/new" class="btn">+ New giveaway</a>
+{% endblock %}

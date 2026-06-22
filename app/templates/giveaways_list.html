@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Giveaways</h1>
+<div class="subtitle">All campaigns, draft through complete</div>
+
+<div class="panel">
+  {% if giveaways %}
+  <table>
+    <tr><th>Title</th><th>Status</th><th>Entries</th><th>Winners</th><th>Created</th><th></th></tr>
+    {% for g in giveaways %}
+    <tr>
+      <td>{{ g.title }}</td>
+      <td><span class="badge badge-{{ g.status.value }}">{{ g.status.value.replace('_',' ') }}</span></td>
+      <td class="mono">{{ g.entry_count }}</td>
+      <td class="mono">{{ g.winner_count }} / {{ g.num_winners }}</td>
+      <td class="mono">{{ g.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td><a href="/giveaways/{{ g.id }}">View →</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">Nothing here yet.</div>
+  {% endif %}
+</div>
+
+<a href="/giveaways/new" class="btn">+ New giveaway</a>
+{% endblock %}

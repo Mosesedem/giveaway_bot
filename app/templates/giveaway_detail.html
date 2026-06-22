@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ giveaway.title }}</h1>
+<div class="subtitle">
+  <span class="badge badge-{{ giveaway.status.value }}">{{ giveaway.status.value.replace('_',' ') }}</span>
+  &nbsp;·&nbsp; id <span class="mono">{{ giveaway.id }}</span>
+</div>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="label">Entries</div>
+    <div class="value">{{ entries|length }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Winners needed</div>
+    <div class="value">{{ giveaway.num_winners }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Winners selected</div>
+    <div class="value accent">{{ winners|length }}</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Actions</h2>
+  <form method="post" action="/giveaways/{{ giveaway.id }}/collect" style="display:inline;">
+    <button type="submit" class="btn secondary">Collect entries now</button>
+  </form>
+  {% if winners|length < giveaway.num_winners %}
+  <form method="post" action="/giveaways/{{ giveaway.id }}/pick-winners" style="display:inline;">
+    <button type="submit" class="btn">Pick winner(s)</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if winners %}
+<div class="panel">
+  <h2>Winners</h2>
+  <table>
+    <tr><th>User ID</th><th>Status</th><th>Selected</th><th></th></tr>
+    {% for w in winners %}
+    <tr>
+      <td class="mono">{{ w.user_id }}</td>
+      <td><span class="badge badge-{{ w.status.value }}">{{ w.status.value.replace('_',' ') }}</span></td>
+      <td class="mono">{{ w.selected_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>
+        {% if w.status.value in ['selected', 'dm_failed'] %}
+        <form method="post" action="/giveaways/{{ giveaway.id }}/winners/{{ w.id }}/notify" style="display:inline;">
+          <input type="hidden" name="message" value="Congrats! You won the giveaway: {{ giveaway.title }}. Reply here or check your DMs for next steps.">
+          <button type="submit" class="btn secondary" style="padding:4px 10px;font-size:12px;">Send DM</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Entries</h2>
+  {% if entries %}
+  <table>
+    <tr><th>Tweet ID</th><th>User ID</th><th>Text</th><th>Valid</th></tr>
+    {% for e in entries %}
+    <tr>
+      <td class="id">{{ e.tweet_id }}</td>
+      <td class="id">{{ e.user_id }}</td>
+      <td>{{ e.text[:80] if e.text else "" }}</td>
+      <td>{{ "✓" if e.is_valid else "✗ " + (e.invalid_reason or "") }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty">No entries collected yet. Click "Collect entries now" above.</div>
+  {% endif %}
+</div>
+{% endblock %}
