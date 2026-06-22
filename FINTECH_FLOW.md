@@ -80,7 +80,8 @@ When `closes_at` passes, the bot auto-closes entries, **randomly picks winners**
 | Endpoint | Source |
 |----------|--------|
 | `POST /webhooks/safehaven/virtual-account` | SafeHaven `virtualAccount.transfer` |
-| `POST /webhooks/paystack` | Paystack `charge.success` / `transfer.success` |
+| `POST /webhooks/paystack` | Funding: `charge.success`, inbound `transfer.success` · Payout: `transfer.success/failed/reversed` |
+| Payout confirmation | SafeHaven `account.debit` (Outwards) · matches `payout-*` / `refund-*` references |
 
 **Security**
 

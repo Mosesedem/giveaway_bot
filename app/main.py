@@ -31,7 +31,7 @@ from app.dm_queue import enqueue_winner_dm, enqueue_all_selected, pending_count,
 from app.entry_validation import validation_config, validation_rules_enabled
 from app.giveaway_lifecycle import close_giveaway, complete_giveaway, is_collecting_entries
 from app.bot_replies import bot_replies_enabled
-from app.payments.webhooks import handle_safehaven_webhook, handle_paystack_charge_success
+from app.payments.webhooks import handle_safehaven_webhook, handle_paystack_webhook
 from app.payments.funding_service import funding_receipt_text
 from app.payments.webhook_security import verify_paystack_signature, verify_safehaven_webhook
 from app.bot_logic import notify_host_funding_mismatch
@@ -528,16 +528,15 @@ async def webhook_safehaven_va(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/webhooks/paystack")
 async def webhook_paystack(request: Request, db: Session = Depends(get_db)):
+    import json
+
     body = await request.body()
     verify_paystack_signature(body, request.headers.get("x-paystack-signature"))
-    import json
     payload = json.loads(body)
-    event = payload.get("event", "")
-    giveaway = None
-    action = "ignored"
-    if event in {"charge.success", "transfer.success"}:
-        giveaway, action = handle_paystack_charge_success(db, payload)
-    if giveaway and action == "activated" and giveaway.host_tweet_id:
+    result = handle_paystack_webhook(db, payload)
+    giveaway = result.get("giveaway")
+    action = result.get("action")
+    if result.get("kind") == "funding" and giveaway and action == "activated" and giveaway.host_tweet_id:
         data = payload.get("data") or {}
         amount_kobo = int(data.get("amount") or 0)
         ref = str(data.get("reference") or giveaway.va_external_reference)
@@ -546,12 +545,17 @@ async def webhook_paystack(request: Request, db: Session = Depends(get_db)):
             get_client().create_reply(receipt, in_reply_to_tweet_id=giveaway.host_tweet_id)
         except Exception as exc:
             logger.warning("Could not post funding receipt: %s", exc)
-    elif giveaway and action == "mismatch":
+    elif result.get("kind") == "funding" and giveaway and action == "mismatch":
         try:
             notify_host_funding_mismatch(db, get_client(), giveaway)
         except Exception as exc:
             logger.warning("Could not notify host of funding mismatch: %s", exc)
-    return {"ok": True, "action": action}
+    return {
+        "ok": True,
+        "kind": result.get("kind"),
+        "action": action,
+        "entity_id": result.get("entity_id"),
+    }
 
 
 @app.get("/admin/settings")

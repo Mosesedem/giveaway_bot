@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: giveaway_bot
+      POSTGRES_USER: giveaway_bot
+      POSTGRES_PASSWORD: giveaway_bot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U giveaway_bot -d giveaway_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: python -m alembic upgrade head
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://giveaway_bot:giveaway_bot@db:5432/giveaway_bot
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://giveaway_bot:giveaway_bot@db:5432/giveaway_bot
+      ENABLE_SCHEDULER: "false"
+      FINTECH_MODE: "true"
+      AUTO_PICK_WINNERS: "true"
+      ENABLE_BOT_REPLIES: "true"
+      SAFEHAVEN_MOCK: "true"
+      PAYSTACK_MOCK: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: .
+    command: python -m app.worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://giveaway_bot:giveaway_bot@db:5432/giveaway_bot
+      ENABLE_SCHEDULER: "true"
+      FINTECH_MODE: "true"
+      AUTO_PICK_WINNERS: "true"
+      ENABLE_BOT_REPLIES: "true"
+      SAFEHAVEN_MOCK: "true"
+      PAYSTACK_MOCK: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

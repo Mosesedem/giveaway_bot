@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import Giveaway, PayoutStatus, Winner, WinnerStatus, PaymentEvent
 from app.payments.exceptions import AccountVerificationError, PaymentError, ProviderDisabledError
 from app.payments.money import format_ngn
+from app.payments.payout_webhooks import _terminal_action
 from app.payments.money import prize_per_winner
 from app.payments.paystack import PaystackClient
 from app.payments.safehaven import SafeHavenClient
@@ -190,22 +191,42 @@ def execute_winner_payout(db: Session, winner: Winner, giveaway: Giveaway) -> st
         if result is None:
             raise PaymentError("; ".join(transfer_errors) or "transfer failed")
 
-        winner.payout_status = PayoutStatus.PAID
-        winner.status = WinnerStatus.PAID
-        winner.paid_at = datetime.now(timezone.utc)
+        transfer_status = str(getattr(result, "status", "completed"))
+        terminal = _terminal_action(transfer_status)
+
+        if terminal == "paid":
+            winner.payout_status = PayoutStatus.PAID
+            winner.status = WinnerStatus.PAID
+            winner.paid_at = datetime.now(timezone.utc)
+            msg = f"Paid {format_ngn(amount)} to {winner.account_name}. Ref: {reference}"
+            event_type = "payout.completed"
+        elif terminal == "failed":
+            winner.payout_status = PayoutStatus.FAILED
+            winner.notes = f"Transfer rejected: {transfer_status}"
+            db.commit()
+            raise PaymentError(winner.notes)
+        else:
+            winner.payout_status = PayoutStatus.PROCESSING
+            msg = (
+                f"Payout of {format_ngn(amount)} to {winner.account_name} is processing. "
+                f"Ref: {reference}"
+            )
+            event_type = "payout.processing"
+
         db.add(
             PaymentEvent(
                 provider=winner.payout_provider,
-                event_type="payout.completed",
+                event_type=event_type,
                 external_reference=reference,
+                payment_reference=reference,
                 giveaway_id=giveaway.id,
                 winner_id=winner.id,
                 amount_kobo=amount,
-                raw_json=str({"status": getattr(result, "status", "ok")}),
+                raw_json=str({"status": transfer_status}),
             )
         )
         db.commit()
-        return f"Paid {format_ngn(amount)} to {winner.account_name}. Ref: {reference}"
+        return msg
     except Exception as exc:
         winner.payout_status = PayoutStatus.FAILED
         winner.notes = str(exc)

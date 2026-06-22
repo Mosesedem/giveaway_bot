@@ -11,6 +11,7 @@ from app.payments.exceptions import AccountVerificationError, PaymentError
 from app.payments.money import format_ngn
 from app.payments.paystack import PaystackClient
 from app.payments.payout_service import _verification_providers, parse_bank_from_text
+from app.payments.payout_webhooks import _terminal_action
 from app.payments.safehaven import SafeHavenClient
 
 logger = logging.getLogger(__name__)
@@ -177,27 +178,42 @@ def execute_host_refund(
             )
             provider_name = "safehaven"
 
+        transfer_status = str(getattr(result, "status", "completed"))
+        terminal = _terminal_action(transfer_status)
         received = giveaway.amount_received_kobo or 0
-        giveaway.amount_received_kobo = max(0, received - amount)
-        from app.models import FundingStatus
 
-        giveaway.funding_status = FundingStatus.AWAITING_PAYMENT
-        giveaway.refund_status = RefundStatus.COMPLETED
+        if terminal == "failed":
+            giveaway.refund_status = RefundStatus.FAILED
+            db.commit()
+            raise PaymentError(f"Refund rejected: {transfer_status}")
+
+        if terminal == "paid":
+            giveaway.amount_received_kobo = max(0, received - amount)
+            from app.models import FundingStatus
+
+            giveaway.funding_status = FundingStatus.AWAITING_PAYMENT
+            giveaway.refund_status = RefundStatus.COMPLETED
+            event_type = "refund.completed"
+            status_msg = f"Refunded {format_ngn(amount)} to {giveaway.refund_account_name}."
+        else:
+            giveaway.refund_status = RefundStatus.PROCESSING
+            event_type = "refund.processing"
+            status_msg = f"Refund of {format_ngn(amount)} is processing."
+
         db.add(
             PaymentEvent(
                 provider=provider_name,
-                event_type="refund.completed",
+                event_type=event_type,
                 external_reference=reference,
                 payment_reference=reference,
                 giveaway_id=giveaway.id,
                 amount_kobo=amount,
-                raw_json=str({"status": getattr(result, "status", "ok")}),
+                raw_json=str({"status": transfer_status}),
             )
         )
         db.commit()
         return (
-            f"Refunded {format_ngn(amount)} to {giveaway.refund_account_name}. "
-            f"Ref: {reference}\n\n"
+            f"{status_msg} Ref: {reference}\n\n"
             "Now reply with your new prize amount, winners: N, and duration (e.g. 7 days)."
         )
     except Exception as exc:

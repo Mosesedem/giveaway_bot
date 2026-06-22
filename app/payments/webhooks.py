@@ -87,14 +87,69 @@ def handle_safehaven_account_credit(db: Session, payload: dict) -> tuple[Giveawa
 
 
 def handle_safehaven_webhook(db: Session, payload: dict) -> tuple[Giveaway | None, str]:
+    from app.payments.payout_webhooks import handle_safehaven_account_debit
+
     event = str(payload.get("type") or payload.get("eventType") or "").lower()
+    data = payload.get("data") or {}
+
+    if "debit" in event or event == "account.debit" or data.get("type") == "Outwards":
+        entity_id, action, kind = handle_safehaven_account_debit(db, payload)
+        if kind:
+            return None, f"payout_{action}"
+        return None, action
+
     if "virtualaccount" in event.replace(".", "") or event == "virtualaccount.transfer":
         return handle_safehaven_virtual_account_transfer(db, payload)
     if "credit" in event or event == "account.credit":
         return handle_safehaven_account_credit(db, payload)
-    if payload.get("data", {}).get("creditAccountNumber"):
+    if data.get("creditAccountNumber"):
         return handle_safehaven_account_credit(db, payload)
     return handle_safehaven_virtual_account_transfer(db, payload)
+
+
+def handle_paystack_webhook(db: Session, payload: dict) -> dict:
+    """Route Paystack events to funding or payout confirmation handlers."""
+    from app.payments.payout_webhooks import handle_paystack_transfer_event
+
+    event = str(payload.get("event") or "")
+    data = payload.get("data") or {}
+    reference = str(data.get("reference") or "")
+
+    if event in {"transfer.success", "transfer.failed", "transfer.reversed"}:
+        entity_id, action, kind = handle_paystack_transfer_event(db, payload)
+        if kind:
+            return {
+                "kind": kind,
+                "entity_id": entity_id,
+                "action": action,
+                "giveaway": None,
+                "funding_action": None,
+            }
+        if event != "transfer.success":
+            return {
+                "kind": "ignored",
+                "entity_id": None,
+                "action": "ignored",
+                "giveaway": None,
+                "funding_action": None,
+            }
+
+    if event in {"charge.success", "transfer.success"}:
+        giveaway, funding_action = handle_paystack_charge_success(db, payload)
+        return {
+            "kind": "funding",
+            "entity_id": giveaway.id if giveaway else None,
+            "action": funding_action,
+            "giveaway": giveaway,
+            "funding_action": funding_action,
+        }
+
+    return {"kind": "ignored", "entity_id": None, "action": "ignored", "giveaway": None, "funding_action": None}
+
+
+def _is_paystack_payout_ref(reference: str) -> bool:
+    ref = str(reference or "").lower()
+    return ref.startswith("payout-") or ref.startswith("refund-")
 
 
 def handle_safehaven_virtual_account_transfer(db: Session, payload: dict) -> tuple[Giveaway | None, str]:

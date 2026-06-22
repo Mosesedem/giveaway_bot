@@ -1,0 +1,13 @@
+venv
+.git
+.gitignore
+__pycache__
+*.pyc
+.pytest_cache
+*.db
+.env
+.env.*
+!.env.example
+terminals
+*.md
+!README.md

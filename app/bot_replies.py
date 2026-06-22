@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def bot_replies_enabled() -> bool:
-    return os.getenv("ENABLE_BOT_REPLIES", "false").lower() == "true"
+    return os.getenv("ENABLE_BOT_REPLIES", "true").lower() == "true"
 
 
 def reply_giveaway_started(client: XClient, giveaway: Giveaway, in_reply_to_tweet_id: str) -> bool:
